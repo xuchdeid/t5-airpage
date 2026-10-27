@@ -75,6 +75,8 @@ Song is under its permissive license.
 - fonts/wqy14.png — native 14 px WenQuanYi Song atlas
 - fonts/wqy16.png — native 16 px WenQuanYi Song atlas
 - fonts/WQY-COPYING — WenQuanYi GPLv2 + embedding exception
+- fonts/WQY-AUTHORS — WenQuanYi authors
+- fonts/WQY-README — upstream font README
 - fonts/WQY-SOURCE.txt — source/version note
 - fonts/song24.png — 24 px Song glyph atlas
 - fonts/song24.json — atlas index and Unicode map
