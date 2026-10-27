@@ -413,13 +413,15 @@ function executeJS() {
       paper.drawTextEx(7, H - 16, '修好后点 Run', T5Paper.BLACK, 9, 'sans');
     } catch (e2) {}
   }
-  jsCache = { code: state.jsCode, w: W, h: H, bits: paper.getBits(), error };
+  jsCache = { code: state.jsCode, w: W, h: H, bits: paper.getBits(), error,
+    serifReady, sansReady };
   return jsCache;
 }
 
 function drawJS(ctx) {
   fillWhite(ctx);
-  if (!jsCache.bits || jsCache.code !== state.jsCode || jsCache.w !== W || jsCache.h !== H) {
+  if (!jsCache.bits || jsCache.code !== state.jsCode || jsCache.w !== W || jsCache.h !== H ||
+      jsCache.serifReady !== serifReady || jsCache.sansReady !== sansReady) {
     executeJS();
   }
   const bits = jsCache.bits || new Uint8Array(W * H);
