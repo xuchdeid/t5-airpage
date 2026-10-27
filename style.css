@@ -63,6 +63,11 @@ h2{font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 .controls textarea{resize:vertical;min-height:94px;line-height:1.5}
 .controls input[type=file]{font-size:12px;width:100%}
 .controls .tiny{font-size:11px;color:var(--muted);line-height:1.45;margin:-4px 0 10px}
+.controls textarea.code{font:12px/1.5 "SF Mono",Menlo,Monaco,"Cascadia Code",monospace;
+  min-height:286px;white-space:pre;tab-size:2;background:#fafafa;color:#18181b}
+.controls .js-run-row{flex-direction:row;align-items:center;gap:10px}
+.controls .js-run-row .btn{min-width:98px}
+.controls .js-run-row .tiny{margin:0;flex:1}
 .compat{margin:14px 0 0;font-size:11px;line-height:1.5;color:var(--muted)}
 .compat.bad{color:var(--bad)}
 .foot{display:flex;justify-content:center;gap:18px;padding:8px 18px 22px;color:#a1a1aa;font-size:11px}

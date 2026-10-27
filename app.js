@@ -24,6 +24,21 @@ function setDot(state) {
 }
 
 /* ---------- state ---------- */
+const jsSavedCode = (() => {
+  try {
+    const saved = localStorage.getItem('t5.jspaper.code');
+    if (saved) return saved;
+  } catch (e) {}
+  return (window.T5Paper && T5Paper.samples.hello.code) || '';
+})();
+const jsSavedExample = (() => {
+  const samples = (window.T5Paper && T5Paper.samples) || {};
+  for (const id of Object.keys(samples)) {
+    if (samples[id].code === jsSavedCode) return id;
+  }
+  return 'custom';
+})();
+
 const state = {
   template: 'quote',
   orientation: 'portrait',
@@ -39,7 +54,9 @@ const state = {
   countdownTitle: '下一次旅行',
   countdownDate: (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0,10); })(),
   moonDate: new Date().toISOString().slice(0,10),
-  dither: 'fs'
+  dither: 'fs',
+  jsExample: jsSavedExample,
+  jsCode: jsSavedCode
 };
 
 /* ---------- canvases ---------- */
@@ -363,6 +380,79 @@ function wrapText(str, maxWidth, size = 12) {
 function fillWhite(ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
 function hline(ctx, x1, x2, y) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y + .5); ctx.lineTo(x2, y + .5); ctx.stroke(); }
 
+/* ---------- JS Lab ---------- */
+let jsCache = { code: null, w: 0, h: 0, bits: null, error: null };
+
+function saveJSCode() {
+  try { localStorage.setItem('t5.jspaper.code', state.jsCode); } catch (e) {}
+}
+
+function executeJS() {
+  if (!window.T5Paper) {
+    jsCache = { code: state.jsCode, w: W, h: H, bits: new Uint8Array(W * H), error: new Error('paper API 未加载') };
+    return jsCache;
+  }
+  const paper = T5Paper.create(W, H);
+  let error = null;
+  try {
+    const fn = new Function('paper', state.jsCode + '\n//# sourceURL=t5-js-app.js');
+    fn(paper);
+  } catch (e) {
+    error = e;
+    // Keep an error frame useful for the preview instead of a blank panel.
+    try {
+      paper.clear(T5Paper.WHITE);
+      paper.drawTextEx(7, 8, 'JS 错误', T5Paper.BLACK, 14, 'sans');
+      const msg = String(e && (e.message || e)).slice(0, 90);
+      let y = 30;
+      for (const line of msg.match(/.{1,16}/g) || []) {
+        paper.drawTextEx(7, y, line, T5Paper.BLACK, 9, 'mono');
+        y += 11;
+        if (y > H - 10) break;
+      }
+      paper.drawTextEx(7, H - 16, '修好后点 Run', T5Paper.BLACK, 9, 'sans');
+    } catch (e2) {}
+  }
+  jsCache = { code: state.jsCode, w: W, h: H, bits: paper.getBits(), error };
+  return jsCache;
+}
+
+function drawJS(ctx) {
+  fillWhite(ctx);
+  if (!jsCache.bits || jsCache.code !== state.jsCode || jsCache.w !== W || jsCache.h !== H) {
+    executeJS();
+  }
+  const bits = jsCache.bits || new Uint8Array(W * H);
+  const id = ctx.createImageData(W, H);
+  for (let i = 0; i < bits.length; i++) {
+    const v = bits[i] ? 0 : 255;
+    id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v;
+    id.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(id, 0, 0);
+  if (jsCache.error) {
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(6, H - 22, W - 12, 16);
+    ctx.fillStyle = '#000';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('ERROR: ' + String(jsCache.error.message || jsCache.error).slice(0, 40), 8, H - 19);
+    ctx.restore();
+  }
+}
+
+function runJS() {
+  executeJS();
+  render();
+  if (jsCache.error) {
+    setStatus('JS 错误：' + String(jsCache.error.message || jsCache.error), 'bad');
+  } else {
+    setStatus('JS 已运行；预览就是将要发送的 1-bit 位图', 'ok');
+  }
+}
+
 /* ---------- templates ---------- */
 const templates = {
   photo:   { name: '照片', sub: 'Photo', icon: '▧', draw: drawPhoto },
@@ -372,7 +462,8 @@ const templates = {
   todo:    { name: '待办卡片', sub: 'To-do', icon: '☑', draw: drawTodo },
   countdown:{ name: '倒计时', sub: 'Countdown', icon: '◷', draw: drawCountdown },
   moon:    { name: '月相', sub: 'Moon', icon: '◐', draw: drawMoon },
-  test:    { name: '测试图', sub: 'Test', icon: '⌗', draw: drawTest }
+  test:    { name: '测试图', sub: 'Test', icon: '⌗', draw: drawTest },
+  js:      { name: 'JS 画布', sub: 'Script', icon: '⌨', draw: drawJS }
 };
 
 function drawPhoto(ctx) {
@@ -762,7 +853,7 @@ function tplList() {
     state.template = b.dataset.tpl;
     renderControls();
     syncTplButtons();
-    render();
+    if (state.template === 'js') runJS(); else render();
   });
 }
 function syncTplButtons() {
@@ -804,6 +895,15 @@ function renderControls() {
   } else if (state.template === 'moon') {
     h += '<div class="row"><label>日期</label><input id="moonDate" type="date" value="' + esc(state.moonDate) + '"></div>';
     h += '<p class="tiny">月相为近似计算，适合装饰，不用于天文观测。</p>';
+  } else if (state.template === 'js') {
+    const samples = (window.T5Paper && T5Paper.samples) || {};
+    h += '<div class="row"><label>示例</label><select id="jsExample">' +
+      Object.entries(samples).map(([k, s]) => '<option value="' + k + '">' + esc(s.name) + '</option>').join('') +
+      '<option value="custom">自定义</option>' +
+      '</select></div>';
+    h += '<div class="row"><label>脚本</label><textarea id="jsCode" class="code" rows="15" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
+    h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送</span></div>';
+    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。API：paper.clear / setPixel / drawLine / fillRect / drawCircle / drawTextEx / beginPath / commit。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
   } else {
     h += '<p class="tiny">测试边框、方向、清晰度和全刷效果。发送后看屏幕上的 TOP / BOTTOM。</p>';
   }
@@ -844,6 +944,33 @@ function renderControls() {
   bind('cdTitle', 'countdownTitle');
   bind('cdDate', 'countdownDate');
   bind('moonDate', 'moonDate');
+  const jc = $('#jsCode');
+  if (jc) {
+    jc.value = state.jsCode;
+    jc.addEventListener('input', () => {
+      state.jsCode = jc.value;
+      state.jsExample = 'custom';
+      const sel = $('#jsExample');
+      if (sel) sel.value = 'custom';
+      saveJSCode();
+    });
+  }
+  const je = $('#jsExample');
+  if (je) {
+    je.value = state.jsExample || 'hello';
+    je.onchange = () => {
+      if (je.value === 'custom') return;
+      const s = window.T5Paper && T5Paper.samples[je.value];
+      if (!s) return;
+      state.jsExample = je.value;
+      state.jsCode = s.code;
+      saveJSCode();
+      renderControls();
+      runJS();
+    };
+  }
+  const jr = $('#jsRun');
+  if (jr) jr.onclick = runJS;
   const d = $('#dither'); if (d) { d.value = state.dither; d.onchange = () => { state.dither = d.value; render(); }; }
   const f = $('#photoFile'); if (f) f.onchange = () => {
     const file = f.files && f.files[0]; if (!file) return;
@@ -955,6 +1082,14 @@ async function writeData(bytes, withResponse) {
 
 async function sendImage() {
   if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
+  if (state.template === 'js') {
+    executeJS();
+    render();
+    if (jsCache.error) {
+      setStatus('JS 有错误，先修好再发送：' + String(jsCache.error.message || jsCache.error), 'bad');
+      return;
+    }
+  }
   const btn = $('#send');
   btn.disabled = true; setDot('busy'); setProgress(0);
   try {

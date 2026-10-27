@@ -61,6 +61,35 @@ fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Noto Serif SC is SIL OFL; see
 fonts/NOTO-OFL.txt and NOTO-SOURCE.txt. Fusion Pixel is SIL OFL; ISCAS Song is
 under its permissive license.
 
+## JS 画布
+
+JS 画布 adds a code editor and a browser-side `paper.*` implementation for
+the 122×250 1-bit panel. It is intentionally independent of QuickJS:
+
+~~~js
+var C = paper.colors;
+paper.clear(C.white);
+paper.drawTextEx(8, 22, 'Hello', C.black, 20, 'sans');
+paper.strokeRect(5, 5, 112, 240, C.black);
+paper.commit();
+~~~
+
+- Coordinates follow the current orientation: 122×250 portrait, 250×122
+  landscape.
+- `paper.drawText` uses a 12 px base multiplied by `scale`; `drawTextEx`
+  takes an explicit pixel size and font name (`sans`, `serif`, `song`, `kai`,
+  `mono`).
+- Text is drawn through Canvas, thresholded to 1-bit, and is not the same
+  rasteriser as the device bitmap fonts.
+- `paper.commit()` is a no-op in the simulator; the editor packs the buffer
+  after the script returns.
+- Timers are no-ops. Each Run is one static frame.
+- Scripts run with `new Function` in the page, not in a sandbox. Treat the
+  editor as a local developer tool.
+
+The browser preview is exactly the 4,000-byte bitmap that is sent over BLE;
+the script itself is not uploaded to the T5 in this phase.
+
 ## Browser support
 
 - Android Chrome / Edge: yes
@@ -73,6 +102,7 @@ under its permissive license.
 - index.html — layout, orientation switch
 - style.css — responsive UI
 - app.js — pixel-font rendering, 1-bit packing, CRC32, GATT client
+- js-paper.js — browser-side 1-bit `paper.*` API used by JS 画布
 - fonts/fusion-pixel-8px.woff2 — 8 px pixel font
 - fonts/fusion-pixel-10px.woff2 — 10 px pixel font
 - fonts/fusion-pixel-12px.woff2 — 12 px pixel font
