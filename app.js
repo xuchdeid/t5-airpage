@@ -235,7 +235,7 @@ function ascentFor(size) {
   if (size === 8) return 7;
   if (size === 10) return 8;
   if (size === 12) return 10;
-  if (size === 24 && activeFont === 'pixel') return 22;
+  if (size >= 24 && activeFont === 'pixel') return Math.round(size * 22 / 24);
   if (wqyFonts[size]) return wqyFonts[size].meta.ascent;
   if (DETAIL_SIZES.includes(size) && (serifReady || sansReady)) return Math.round(size * 1.17);
   if (size === 14) return 12;
@@ -284,7 +284,7 @@ function glyph(ch, size = 12) {
     const wg = wqyGlyph(ch, size);
     if (wg) return wg;
   }
-  const pixelMode = size === 24 && activeFont === 'pixel';
+  const pixelMode = size >= 24 && activeFont === 'pixel';
   if (pixelMode && isSongChar(ch)) {
     const sg = songGlyph(ch, size);
     if (sg) return sg;
@@ -405,7 +405,7 @@ function drawQuote(ctx) {
   const author = state.author.trim().slice(0, 20);
   const size = FONT_SIZES.includes(Number(state.quoteSize)) ? Number(state.quoteSize) : 12;
   const previousFont = activeFont;
-  activeFont = size === 24 ? (state.quoteFont || 'serif') : 'serif';
+  activeFont = size >= 24 ? (state.quoteFont || 'serif') : 'serif';
   const ascent = ascentFor(size);
   const mark = Math.min(24, Math.max(12, size));
   const authorSize = Math.min(12, Math.max(8, size));
@@ -782,14 +782,14 @@ function renderControls() {
     h += '<div class="row"><label>正文字号</label><select id="quoteSize">' +
       FONT_SIZES.map(s => '<option value="' + s + '">' + s + ' px</option>').join('') +
       '</select></div>';
-    h += '<div class="row" id="quoteFontRow" style="display:' + (Number(state.quoteSize) === 24 ? '' : 'none') + '">' +
-      '<label>字体（24px）</label><select id="quoteFont">' +
+    h += '<div class="row" id="quoteFontRow" style="display:' + (Number(state.quoteSize) >= 24 ? '' : 'none') + '">' +
+      '<label>字体（24px+）</label><select id="quoteFont">' +
       '<option value="serif">宋体 · Noto Serif</option>' +
       '<option value="sans"' + (sansReady ? '' : ' disabled') + '>黑体 · Noto Sans</option>' +
-      '<option value="pixel">24px 点阵宋</option>' +
+      '<option value="pixel">点阵宋 · 24px 字模</option>' +
       '</select></div>';
     h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
-    h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14/16 用文泉驿原生点阵宋，18 px 以上为实时轮廓字。24px 可切换宋体、黑体或原生点阵宋。</p>';
+    h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14/16 用文泉驿原生点阵宋，18 px 以上为实时轮廓字。24px 及以上可切换宋体、黑体或点阵宋。</p>';
   } else if (state.template === 'year') {
     h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
     h += '<p class="tiny">按今天在这一年中的位置计算。</p>';
@@ -819,7 +819,7 @@ function renderControls() {
   const qf = $('#quoteFont');
   const syncQuoteFont = () => {
     const row = $('#quoteFontRow');
-    if (row) row.style.display = Number(state.quoteSize) === 24 ? '' : 'none';
+    if (row) row.style.display = Number(state.quoteSize) >= 24 ? '' : 'none';
   };
   if (qs) {
     qs.value = String(state.quoteSize);

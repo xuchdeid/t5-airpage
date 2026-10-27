@@ -3,6 +3,6 @@ Source: https://github.com/notofonts/noto-cjk/tree/main/Serif/SubsetOTF/SC
         https://github.com/notofonts/noto-cjk/tree/main/Sans/SubsetOTF/SC
 Files: NotoSerifSC-Regular.otf, NotoSansSC-Regular.otf
 Subset: GB2312 + ASCII + common CJK punctuation, WOFF2.
-Used for 18 px and larger; 24 px can switch between Noto Serif, Noto Sans
-and the native 24 px ISCAS bitmap.
+Used for 18 px and larger; 24 px and above can switch between Noto Serif,
+Noto Sans and the ISCAS 24 px bitmap.
 License: SIL Open Font License 1.1; see NOTO-OFL.txt.

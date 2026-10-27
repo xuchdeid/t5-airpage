@@ -48,7 +48,8 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
   target size. This includes 24 and 48; neither is a bitmap scaled up or down.
 - Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
   they fall back to the integer-scaled 12 px master.
-- 24 px font menu: Noto Serif SC, Noto Sans SC, or the native ISCAS 24 px bitmap.
+- 24 px and above font menu: Noto Serif SC, Noto Sans SC, or the ISCAS 24 px
+  bitmap (native at 24, scaled at 26/28/30/32).
 - 24 px Song: web/fonts/song24.png + song24.json remains only as a fallback for
   rare glyphs outside the Noto subset.
 
