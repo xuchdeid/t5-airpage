@@ -40,15 +40,21 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px:
 - 8/10/12 px: three independent Fusion Pixel designs
   (fusion-pixel-8px.woff2, -10px, -12px; SIL OFL), rasterised and thresholded
   to 1-bit.
-- 14–32 px Chinese: web/fonts/song24.png + song24.json, generated from the
+- 14/16 px Chinese: native WenQuanYi Bitmap Song atlases (wqy14.png/json,
+  wqy16.png/json), rasterised from the 13px and 12pt PCF strikes.
+- 18–32 px Chinese: web/fonts/song24.png + song24.json, generated from the
   ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf). 24 px is the native design;
   other sizes render the same 24 px glyph at the requested size.
 - 48 px Chinese: exact 2×24 Song for the large number/label slots.
 - Latin/numbers above 12 px fall back to the integer-scaled 12 px master because
-  the Song bitmap is GB2312-only.
+  the Song and WenQuanYi atlases are CJK-only.
 
 The quote template exposes the full 8–32 px body-size selector. Do not switch the
 canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
+
+WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
+fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Fusion Pixel is SIL OFL; ISCAS
+Song is under its permissive license.
 
 ## Browser support
 
@@ -66,6 +72,10 @@ canvas back to system fonts: anti-aliased Chinese loses strokes at this resoluti
 - fonts/fusion-pixel-10px.woff2 — 10 px pixel font
 - fonts/fusion-pixel-12px.woff2 — 12 px pixel font
 - fonts/OFL.txt — Fusion Pixel license
+- fonts/wqy14.png — native 14 px WenQuanYi Song atlas
+- fonts/wqy16.png — native 16 px WenQuanYi Song atlas
+- fonts/WQY-COPYING — WenQuanYi GPLv2 + embedding exception
+- fonts/WQY-SOURCE.txt — source/version note
 - fonts/song24.png — 24 px Song glyph atlas
 - fonts/song24.json — atlas index and Unicode map
 - fonts/ISCAS.txt — ISCAS Song license

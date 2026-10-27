@@ -1,0 +1,7 @@
+WenQuanYi Bitmap Song
+Source: https://github.com/AmusementClub/WenQuanYi-Bitmap-Song-TTF
+Upstream: WenQuanYi Bitmap Song v1.0.0-RC1 (PCF, wenquanyi_13px.pcf and wenquanyi_12pt.pcf)
+Atlas files wqy14.png/json and wqy16.png/json were rasterised from the PCF/BDF
+strikes at their native 14 px and 16 px sizes for this editor.
+License: GNU General Public License v2 with font embedding exception.
+See WQY-COPYING, WQY-AUTHORS and WQY-README.

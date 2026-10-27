@@ -59,8 +59,13 @@ const glyphs = new Map();
 let measureCtx = document.createElement('canvas').getContext('2d');
 let fontReady = false;
 
-/* 24x24 ISCAS Song bitmap, used for Chinese at 14 px and above. */
+/* 24x24 ISCAS Song bitmap, used for Chinese at 24 px and above. */
 let songReady = false, songImg = null, songMeta = null;
+
+/* Native 14/16 px WenQuanYi Bitmap Song atlases. These fill the sizes that
+ * the 24 px Song grid cannot represent without scaling. */
+const WQY_SIZES = [14, 16];
+const wqyFonts = {};
 
 const PIXEL_FACES = {
   8:  { family: 'T5Pixel8',  file: 'fonts/fusion-pixel-8px.woff2' },
@@ -96,6 +101,21 @@ async function loadSongFont() {
   songImg = img; songMeta = meta; songReady = true;
 }
 
+async function loadWqyFont(size) {
+  const [img, meta] = await Promise.all([
+    loadImage('fonts/wqy' + size + '.png'),
+    fetch('fonts/wqy' + size + '.json').then(r => r.json())
+  ]);
+  wqyFonts[size] = { img, meta };
+}
+
+async function loadWqyFonts() {
+  const results = await Promise.allSettled(WQY_SIZES.map(loadWqyFont));
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') console.warn('WQY ' + WQY_SIZES[i] + 'px unavailable', r.reason);
+  });
+}
+
 function isSongChar(ch) {
   const cp = ch.codePointAt(0);
   return cp >= 0x2E80 || (cp >= 0x3000 && cp <= 0x303F) ||
@@ -122,12 +142,36 @@ function songGlyph(ch, size) {
   return g;
 }
 
+function wqyGlyph(ch, size) {
+  const f = wqyFonts[size];
+  if (!f) return null;
+  const idx = f.meta.map[String(ch.codePointAt(0))];
+  if (idx === undefined) return null;
+  const key = 'wqy:' + size + ':' + ch;
+  let g = glyphs.get(key);
+  if (g) return g;
+  const cell = f.meta.cell;
+  const out = document.createElement('canvas');
+  out.width = cell; out.height = cell;
+  const o = out.getContext('2d');
+  o.imageSmoothingEnabled = false;
+  const sx = (idx % f.meta.cols) * cell;
+  const sy = Math.floor(idx / f.meta.cols) * cell;
+  o.drawImage(f.img, sx, sy, cell, cell, 0, 0, cell, cell);
+  g = { canvas: out, w: cell, size: cell, baseline: f.meta.ascent, wqy: true };
+  glyphs.set(key, g);
+  return g;
+}
+
 const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
 
 function ascentFor(size) {
   if (size === 8) return 7;
   if (size === 10) return 8;
   if (size === 12) return 10;
+  if (wqyFonts[size]) return wqyFonts[size].meta.ascent;
+  if (size === 14) return 12;
+  if (size === 16) return 14;
   return Math.round(size * 22 / 24); // 24 px Song ascent
 }
 
@@ -168,6 +212,10 @@ function basePixelGlyph(ch, size) {
 }
 
 function glyph(ch, size = 12) {
+  if ((size === 14 || size === 16) && isSongChar(ch)) {
+    const wg = wqyGlyph(ch, size);
+    if (wg) return wg;
+  }
   if (size >= 14 && isSongChar(ch)) {
     const sg = songGlyph(ch, size);
     if (sg) return sg;
@@ -654,7 +702,7 @@ function renderControls() {
       FONT_SIZES.map(s => '<option value="' + s + '">' + s + ' px</option>').join('') +
       '</select></div>';
     h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
-    h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14 以上中文用 24px 宋体缩放。大字号行数更少。</p>';
+    h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14/16 用文泉驿原生点阵宋，18 以上中文用 24px 宋体缩放。</p>';
   } else if (state.template === 'year') {
     h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
     h += '<p class="tiny">按今天在这一年中的位置计算。</p>';
@@ -900,6 +948,7 @@ async function boot() {
       console.warn('24px Song atlas unavailable, Chinese will fall back to 12px cells', e);
       songReady = false;
     }
+    await loadWqyFonts();
     setOrientation('portrait');
   } catch (e) {
     console.error(e);
