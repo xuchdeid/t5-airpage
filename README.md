@@ -35,7 +35,8 @@ URL needs a larger QR version and a smaller module scale in showQrScreen().
 
 ## Pixel font
 
-Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px:
+Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
+(plus 48 px for the fixed year/countdown number slots):
 
 - 8/10/12 px: three independent Fusion Pixel designs
   (fusion-pixel-8px.woff2, -10px, -12px; SIL OFL), rasterised and thresholded
