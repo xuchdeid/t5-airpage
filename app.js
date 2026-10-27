@@ -1063,6 +1063,7 @@ async function boot() {
       serifReady = false;
     }
     setOrientation('portrait');
+    renderControls();
   } catch (e) {
     console.error(e);
     setStatus('点阵字体加载失败：' + (e.message || e), 'bad');
