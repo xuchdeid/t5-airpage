@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#18181b">
+<title>AirPage BLE · T5</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="mark">A</span>
+    <div><strong>AirPage</strong><small>Bluetooth edition</small></div>
+  </div>
+  <div class="devicebar">
+    <span id="dot" class="dot"></span>
+    <span id="devname">未连接</span>
+    <button id="connect" class="btn primary">连接 T5</button>
+    <button id="exit" class="btn ghost" hidden>断开</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="templates">
+    <h2>场景</h2>
+    <div id="tplList"></div>
+    <p class="hint">122 × 250 / 250 × 122 · 1-bit<br>12px 点阵字体 · 内容只在浏览器本地渲染，图片通过蓝牙发送。</p>
+  </aside>
+
+  <section class="stage">
+    <div class="viewbar" id="orient" role="group" aria-label="屏幕方向">
+      <button data-orient="portrait" class="active">竖屏 122×250</button>
+      <button data-orient="landscape">横屏 250×122</button>
+    </div>
+    <div class="paperwrap">
+      <canvas id="preview" width="122" height="250" aria-label="e-paper preview"></canvas>
+    </div>
+    <div class="sendbar">
+      <div class="statusline"><span id="status">设备开机即广播，点“连接 T5”</span></div>
+      <div class="actions">
+        <button id="download" class="btn ghost" title="下载 1-bit PNG">下载 PNG</button>
+        <button id="send" class="btn primary" disabled>发送到 T5</button>
+      </div>
+    </div>
+    <div class="progress"><i id="bar"></i></div>
+  </section>
+
+  <aside class="controls">
+    <h2>设置</h2>
+    <div id="controls"></div>
+    <p id="compat" class="compat"></p>
+  </aside>
+</main>
+
+<footer class="foot">
+  <span>Web Bluetooth · 无云端 · 无 WiFi</span>
+  <span id="secure"></span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
