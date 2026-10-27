@@ -49,28 +49,33 @@ base.width = W; base.height = H;
 let bctx = base.getContext('2d', { willReadFrequently: true });
 
 /* ---------- pixel fonts ----------
- * 12px Chinese: Fusion Pixel master, thresholded to 1-bit.
- * 24/48px Chinese: a separate 24x24 ISCAS Song bitmap (true 24px detail,
- * 48px is 2x24). Latin/numbers stay on the integer-scaled 12px master.
+ * 8/10/12 px: Fusion Pixel's three independent pixel designs.
+ * 14-32 px Chinese: 24x24 ISCAS Song bitmap, scaled to the requested size.
+ * 48 px Chinese: 2x24 Song for the large number/label slots.
+ * Latin/numbers above 12 px stay on the 12 px master.
  * No system font and no anti-aliased Chinese in the final image.
  */
 const glyphs = new Map();
-let glyphCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
 let measureCtx = document.createElement('canvas').getContext('2d');
 let fontReady = false;
 
-/* 24x24 ISCAS Song bitmap, used for Chinese at 24/48 px. This is a real
- * 24 px design, not a 12 px glyph enlarged. Latin stays on the 12 px master. */
+/* 24x24 ISCAS Song bitmap, used for Chinese at 14 px and above. */
 let songReady = false, songImg = null, songMeta = null;
 
+const PIXEL_FACES = {
+  8:  { family: 'T5Pixel8',  file: 'fonts/fusion-pixel-8px.woff2' },
+  10: { family: 'T5Pixel10', file: 'fonts/fusion-pixel-10px.woff2' },
+  12: { family: 'T5Pixel',   file: 'fonts/fusion-pixel-12px.woff2' }
+};
+
 async function loadPixelFont() {
-  const face = new FontFace('T5Pixel', 'url("fonts/fusion-pixel-12px.woff2")');
-  await face.load();
-  document.fonts.add(face);
-  await document.fonts.load('12px T5Pixel');
-  glyphCtx.font = '12px T5Pixel';
-  glyphCtx.textBaseline = 'alphabetic';
-  measureCtx.font = '12px T5Pixel';
+  for (const [size, spec] of Object.entries(PIXEL_FACES)) {
+    const face = new FontFace(spec.family, 'url("' + spec.file + '")');
+    await face.load();
+    document.fonts.add(face);
+    await document.fonts.load(size + 'px ' + spec.family);
+  }
+  measureCtx.font = '12px ' + PIXEL_FACES[12].family;
   fontReady = true;
 }
 
@@ -117,55 +122,62 @@ function songGlyph(ch, size) {
   return g;
 }
 
-/* 12 / 24 / 48 px bitmap cells. The 12 px master is thresholded once;
- * 24 and 48 are cached as exact 2x / 4x integer pixel grids. This keeps the
- * dot-matrix strokes even, which native 48 px hinting does not. */
-const FONT_SIZES = [12, 24, 48];
+const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
 
-function baseGlyph12(ch) {
-  const key = '12:' + ch;
+function ascentFor(size) {
+  if (size === 8) return 7;
+  if (size === 10) return 8;
+  if (size === 12) return 10;
+  return Math.round(size * 22 / 24); // 24 px Song ascent
+}
+
+function basePixelGlyph(ch, size) {
+  const spec = PIXEL_FACES[size];
+  if (!spec) return null;
+  const key = size + ':' + ch;
   let g = glyphs.get(key);
   if (g) return g;
 
-  measureCtx.font = '12px T5Pixel';
+  measureCtx.font = size + 'px ' + spec.family;
   const m = measureCtx.measureText(ch);
   const w = Math.max(1, Math.ceil(m.width));
+  const baseline = Math.round(size * 10 / 12);
   const c = document.createElement('canvas');
-  c.width = w; c.height = 12;
+  c.width = w; c.height = size;
   const g2 = c.getContext('2d', { willReadFrequently: true });
-  g2.clearRect(0, 0, w, 12);
-  g2.font = '12px T5Pixel';
+  g2.clearRect(0, 0, w, size);
+  g2.font = size + 'px ' + spec.family;
   g2.textBaseline = 'alphabetic';
   g2.fillStyle = '#000';
-  g2.fillText(ch, 0, 10);
+  g2.fillText(ch, 0, baseline);
 
-  const src = g2.getImageData(0, 0, w, 12);
+  const src = g2.getImageData(0, 0, w, size);
   const out = document.createElement('canvas');
-  out.width = w; out.height = 12;
+  out.width = w; out.height = size;
   const o = out.getContext('2d');
-  const id = o.createImageData(w, 12);
-  for (let i = 0; i < w * 12; i++) {
+  const id = o.createImageData(w, size);
+  for (let i = 0; i < w * size; i++) {
     if (src.data[i * 4 + 3] > 96) {
       id.data[i * 4 + 3] = 255;      // black, fully opaque
     }
   }
   o.putImageData(id, 0, 0);
-  g = { canvas: out, w, size: 12, baseline: 10 };
+  g = { canvas: out, w, size, baseline };
   glyphs.set(key, g);
   return g;
 }
 
 function glyph(ch, size = 12) {
-  if (size >= 24 && isSongChar(ch)) {
+  if (size >= 14 && isSongChar(ch)) {
     const sg = songGlyph(ch, size);
     if (sg) return sg;
   }
+  if (PIXEL_FACES[size]) return basePixelGlyph(ch, size);
+
   const key = size + ':' + ch;
   let g = glyphs.get(key);
   if (g) return g;
-  if (size === 12) return baseGlyph12(ch);
-
-  const b = baseGlyph12(ch);
+  const b = basePixelGlyph(ch, 12);
   const s = size / 12;
   const out = document.createElement('canvas');
   out.width = Math.max(1, Math.round(b.w * s)); out.height = size;
@@ -187,7 +199,7 @@ function textWidth(str, size = 12) {
 function text(ctx, str, x, y, size = 12, align = 'left') {
   const total = textWidth(str, size);
   let cx = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
-  const ascent = size === 12 ? 10 : Math.round(size * 22 / 24);
+  const ascent = ascentFor(size);
   ctx.imageSmoothingEnabled = false;
   for (const ch of Array.from(String(str))) {
     const g = glyph(ch, size);
@@ -265,30 +277,32 @@ function drawQuote(ctx) {
   ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(5, 5, W - 10, H - 10);
   const body = state.quote.trim() || '写点什么';
   const author = state.author.trim().slice(0, 20);
-  const size = [12, 24, 48].includes(Number(state.quoteSize)) ? Number(state.quoteSize) : 12;
-  const ascent = Math.round(size * 10 / 12);
+  const size = FONT_SIZES.includes(Number(state.quoteSize)) ? Number(state.quoteSize) : 12;
+  const ascent = ascentFor(size);
+  const mark = Math.min(24, Math.max(12, size));
+  const authorSize = Math.min(12, Math.max(8, size));
 
   if (state.orientation === 'portrait') {
-    text(ctx, '“', 10, 30, 24);
-    const lh = Math.round(size * 1.3);
-    const maxLines = size === 48 ? 3 : size === 24 ? 5 : 9;
-    const lines = wrapText(body, W - 24, size).slice(0, maxLines);
+    text(ctx, '“', 10, 30, mark);
+    const lh = Math.max(10, Math.round(size * 1.3));
     const top = 44, bottom = H - 32;
+    const maxLines = Math.max(1, Math.min(9, Math.floor((bottom - top) / lh)));
+    const lines = wrapText(body, W - 24, size).slice(0, maxLines);
     const block = lines.length * lh;
     let y = Math.max(top + ascent, top + (bottom - top - block) / 2 + ascent);
     for (const line of lines) { text(ctx, line, 12, y, size); y += lh; }
-    if (author) text(ctx, author, 12, H - 18, 12);
+    if (author) text(ctx, author, 12, H - 18, authorSize);
     hline(ctx, 12, 34, H - 28);
   } else {
-    text(ctx, '“', 10, 28, 24);
-    const lh = Math.round(size * 1.15);
-    const maxLines = size === 48 ? 1 : size === 24 ? 1 : 3;
-    const lines = wrapText(body, W - 26, size).slice(0, maxLines);
+    text(ctx, '“', 10, 28, mark);
+    const lh = Math.max(10, Math.round(size * 1.15));
     const top = 44, bottom = H - 24;
+    const maxLines = Math.max(1, Math.min(4, Math.floor((bottom - top) / lh)));
+    const lines = wrapText(body, W - 26, size).slice(0, maxLines);
     const block = lines.length * lh;
     let y = Math.max(top + ascent, top + (bottom - top - block) / 2 + ascent);
     for (const line of lines) { text(ctx, line, 12, y, size); y += lh; }
-    if (author) text(ctx, author, 12, H - 8, 12);
+    if (author) text(ctx, author, 12, H - 8, authorSize);
     hline(ctx, 12, 34, H - 18);
   }
 }
@@ -636,9 +650,11 @@ function renderControls() {
     h += '<p class="tiny">原图只在本机 Canvas 里处理，不上传服务器。</p>';
   } else if (state.template === 'quote') {
     h += '<div class="row"><label>正文</label><textarea id="quote" maxlength="180">' + esc(state.quote) + '</textarea></div>';
-    h += '<div class="row"><label>正文字号</label><select id="quoteSize"><option value="12">12 px</option><option value="24">24 px</option><option value="48">48 px</option></select></div>';
+    h += '<div class="row"><label>正文字号</label><select id="quoteSize">' +
+      FONT_SIZES.map(s => '<option value="' + s + '">' + s + ' px</option>').join('') +
+      '</select></div>';
     h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
-    h += '<p class="tiny">12 / 24 / 48 px 均为 1-bit 点阵字模。大字号行数更少，横屏 24/48 只排一行。</p>';
+    h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14 以上中文用 24px 宋体缩放。大字号行数更少。</p>';
   } else if (state.template === 'year') {
     h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
     h += '<p class="tiny">按今天在这一年中的位置计算。</p>';

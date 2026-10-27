@@ -35,18 +35,20 @@ URL needs a larger QR version and a smaller module scale in showQrScreen().
 
 ## Pixel font
 
-Canvas text uses two bitmap sources:
+Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px:
 
-- 12 px Chinese and all Latin: web/fonts/fusion-pixel-12px.woff2 (SIL OFL),
-  rasterised and thresholded to 1-bit.
-- 24/48 px Chinese: web/fonts/song24.png + song24.json, generated from the
-  ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf). This is a real 24 px design, not
-  12 px scaled; 48 px is an exact 2×24 bitmap.
-- Latin/numbers at 24/48 px fall back to the integer-scaled 12 px master because
+- 8/10/12 px: three independent Fusion Pixel designs
+  (fusion-pixel-8px.woff2, -10px, -12px; SIL OFL), rasterised and thresholded
+  to 1-bit.
+- 14–32 px Chinese: web/fonts/song24.png + song24.json, generated from the
+  ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf). 24 px is the native design;
+  other sizes render the same 24 px glyph at the requested size.
+- 48 px Chinese: exact 2×24 Song for the large number/label slots.
+- Latin/numbers above 12 px fall back to the integer-scaled 12 px master because
   the Song bitmap is GB2312-only.
 
-The quote template exposes a 12/24/48 px body-size selector. Do not switch the canvas
-back to system fonts: anti-aliased Chinese loses strokes at this resolution.
+The quote template exposes the full 8–32 px body-size selector. Do not switch the
+canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
 
 ## Browser support
 
@@ -60,6 +62,8 @@ back to system fonts: anti-aliased Chinese loses strokes at this resolution.
 - index.html — layout, orientation switch
 - style.css — responsive UI
 - app.js — pixel-font rendering, 1-bit packing, CRC32, GATT client
+- fonts/fusion-pixel-8px.woff2 — 8 px pixel font
+- fonts/fusion-pixel-10px.woff2 — 10 px pixel font
 - fonts/fusion-pixel-12px.woff2 — 12 px pixel font
 - fonts/OFL.txt — Fusion Pixel license
 - fonts/song24.png — 24 px Song glyph atlas
