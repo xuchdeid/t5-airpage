@@ -36,10 +36,10 @@ URL needs a larger QR version and a smaller module scale in showQrScreen().
 ## Pixel font
 
 Canvas text uses web/fonts/fusion-pixel-12px.woff2 (Fusion Pixel 12px Monospaced SC,
-SIL OFL). app.js rasterises each glyph at 12, 24 or 48 px, thresholds it to 1-bit and
-caches the cell per size (width, height, baseline). The 24/48 px cells are independent
-rasterisations, not runtime-scaled 12 px thumbnails. Do not switch the canvas back to
-system fonts: anti-aliased Chinese loses strokes at this resolution.
+SIL OFL). app.js rasterises and thresholds the 12 px master, then caches 24 and 48 px
+cells as exact 2×/4× integer pixel grids (width, height and baseline per size). Do not
+switch the canvas back to system fonts: anti-aliased Chinese loses strokes at this
+resolution.
 
 ## Browser support
 

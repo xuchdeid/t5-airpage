@@ -68,40 +68,58 @@ async function loadPixelFont() {
   fontReady = true;
 }
 
-/* Actual 12 / 24 / 48 px rasterisation. Each size has its own glyph cell,
- * width and baseline; 24 and 48 are not runtime-scaled 12 px thumbnails. */
+/* 12 / 24 / 48 px bitmap cells. The 12 px master is thresholded once;
+ * 24 and 48 are cached as exact 2x / 4x integer pixel grids. This keeps the
+ * dot-matrix strokes even, which native 48 px hinting does not. */
 const FONT_SIZES = [12, 24, 48];
 
-function glyph(ch, size = 12) {
-  const key = size + ':' + ch;
+function baseGlyph12(ch) {
+  const key = '12:' + ch;
   let g = glyphs.get(key);
   if (g) return g;
 
-  measureCtx.font = size + 'px T5Pixel';
+  measureCtx.font = '12px T5Pixel';
   const m = measureCtx.measureText(ch);
   const w = Math.max(1, Math.ceil(m.width));
-  const baseline = Math.round(size * 10 / 12);
   const c = document.createElement('canvas');
-  c.width = w; c.height = size;
+  c.width = w; c.height = 12;
   const g2 = c.getContext('2d', { willReadFrequently: true });
-  g2.clearRect(0, 0, w, size);
-  g2.font = size + 'px T5Pixel';
+  g2.clearRect(0, 0, w, 12);
+  g2.font = '12px T5Pixel';
   g2.textBaseline = 'alphabetic';
   g2.fillStyle = '#000';
-  g2.fillText(ch, 0, baseline);
+  g2.fillText(ch, 0, 10);
 
-  const src = g2.getImageData(0, 0, w, size);
+  const src = g2.getImageData(0, 0, w, 12);
   const out = document.createElement('canvas');
-  out.width = w; out.height = size;
+  out.width = w; out.height = 12;
   const o = out.getContext('2d');
-  const id = o.createImageData(w, size);
-  for (let i = 0; i < w * size; i++) {
+  const id = o.createImageData(w, 12);
+  for (let i = 0; i < w * 12; i++) {
     if (src.data[i * 4 + 3] > 96) {
       id.data[i * 4 + 3] = 255;      // black, fully opaque
     }
   }
   o.putImageData(id, 0, 0);
-  g = { canvas: out, w, size, baseline };
+  g = { canvas: out, w, size: 12, baseline: 10 };
+  glyphs.set(key, g);
+  return g;
+}
+
+function glyph(ch, size = 12) {
+  const key = size + ':' + ch;
+  let g = glyphs.get(key);
+  if (g) return g;
+  if (size === 12) return baseGlyph12(ch);
+
+  const b = baseGlyph12(ch);
+  const s = Math.max(1, Math.round(size / 12));
+  const out = document.createElement('canvas');
+  out.width = b.w * s; out.height = 12 * s;
+  const o = out.getContext('2d');
+  o.imageSmoothingEnabled = false;
+  o.drawImage(b.canvas, 0, 0, out.width, out.height);
+  g = { canvas: out, w: out.width, size: out.height, baseline: 10 * s };
   glyphs.set(key, g);
   return g;
 }
