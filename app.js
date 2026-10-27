@@ -55,6 +55,11 @@ const state = {
   countdownDate: (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0,10); })(),
   moonDate: new Date().toISOString().slice(0,10),
   dither: 'fs',
+  dailyDate: (() => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  })(),
+  dailyOffset: 0,
   jsExample: jsSavedExample,
   jsCode: jsSavedCode
 };
@@ -455,10 +460,107 @@ function runJS() {
   }
 }
 
+
+/* ---------- 每日一句 ---------- */
+const DAILY_QUOTES = (window.T5_QUOTES && window.T5_QUOTES.length)
+  ? window.T5_QUOTES
+  : [{ text: '慢一点，也是一种前进。', author: 'AirPage', source: '' }];
+
+function localDateKey(d = new Date()) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function dailyHash(str) {
+  let h = 2166136261;
+  for (const ch of String(str)) {
+    h ^= ch.codePointAt(0);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function dailyPick() {
+  const n = DAILY_QUOTES.length;
+  const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(state.dailyDate)) ? state.dailyDate : localDateKey();
+  const base = dailyHash(dateKey) % n;
+  const offset = Math.trunc(Number(state.dailyOffset) || 0);
+  const index = ((base + offset) % n + n) % n;
+  return { quote: DAILY_QUOTES[index], index, base, dateKey, offset };
+}
+
+function dailyDateLabel(key) {
+  return String(key).slice(5).replace('-', '.');
+}
+
+function dailyByline(q) {
+  return '—— ' + [q.author, q.source].filter(Boolean).join(' ');
+}
+
+function fitDaily(text, maxW, maxH) {
+  const sizes = [24, 22, 20, 18, 16, 14, 12, 10];
+  for (const size of sizes) {
+    const lines = wrapText(text, maxW, size);
+    const lineHeight = Math.max(size + 5, Math.round(size * 1.4));
+    if (lines.length * lineHeight <= maxH) {
+      return { size, lines, lineHeight, ascent: ascentFor(size) };
+    }
+  }
+  const size = 10;
+  const lines = wrapText(text, maxW, size);
+  return { size, lines, lineHeight: 15, ascent: ascentFor(size) };
+}
+
+function drawDaily(ctx) {
+  fillWhite(ctx);
+  const info = dailyPick();
+  const landscape = state.orientation === 'landscape';
+  const previousFont = activeFont;
+  activeFont = 'serif';
+
+  const margin = landscape ? 10 : 9;
+  const left = landscape ? 14 : 13;
+  const right = landscape ? W - 10 : W - margin;
+  const maxW = right - left;
+  const bodyTop = landscape ? 36 : 38;
+  const bodyBottom = landscape ? H - 30 : H - 40;
+
+  text(ctx, '每日一句', margin, 15, 10);
+  text(ctx, dailyDateLabel(info.dateKey), W - margin, 15, 10, 'right');
+  hline(ctx, margin, W - margin, 24);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(4, bodyTop, 2, Math.max(1, bodyBottom - bodyTop));
+
+  const fit = fitDaily(info.quote.text, maxW, bodyBottom - bodyTop);
+  const blockH = fit.lines.length * fit.lineHeight;
+  const start = bodyTop + Math.max(0, (bodyBottom - bodyTop - blockH) / 2);
+  fit.lines.forEach((line, i) => {
+    text(ctx, line, left, start + fit.ascent + i * fit.lineHeight, fit.size);
+  });
+
+  let by = dailyByline(info.quote);
+  let bySize = 10;
+  if (textWidth(by, bySize) > maxW) bySize = 8;
+  by = fitText(by, maxW, bySize);
+  text(ctx, by, left, H - (landscape ? 12 : 17), bySize);
+  hline(ctx, left, right, H - (landscape ? 24 : 29));
+
+  activeFont = previousFont;
+}
+
+function refreshDailyMeta() {
+  const el = $('#dailyMeta');
+  if (!el) return;
+  const info = dailyPick();
+  el.textContent = '当前：第 ' + (info.index + 1) + ' / ' + DAILY_QUOTES.length +
+    ' 句 · ' + info.quote.author + ' · ' + info.dateKey;
+}
+
 /* ---------- templates ---------- */
 const templates = {
   photo:   { name: '照片', sub: 'Photo', icon: '▧', draw: drawPhoto },
   quote:   { name: '文字海报', sub: 'Quote', icon: '❝', draw: drawQuote },
+  daily:   { name: '每日一句', sub: 'Daily', icon: '❞', draw: drawDaily },
   year:    { name: '年度进度', sub: 'Year', icon: '◔', draw: drawYear },
   week:    { name: '每周计划', sub: 'Week', icon: '▤', draw: drawWeek },
   todo:    { name: '待办卡片', sub: 'To-do', icon: '☑', draw: drawTodo },
@@ -883,6 +985,17 @@ function renderControls() {
       '</select></div>';
     h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
     h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14/16 用文泉驿原生点阵宋，18 px 以上为实时轮廓字。24px 及以上可切换宋体、黑体或点阵宋。</p>';
+  } else if (state.template === 'daily') {
+    const info = dailyPick();
+    h += '<div class="row"><label>日期</label><input id="dailyDate" type="date" value="' + esc(info.dateKey) + '"></div>';
+    h += '<div class="row daily-actions">' +
+      '<button class="btn" id="dailyPrev">‹ 上一句</button>' +
+      '<button class="btn primary" id="dailyNext">换一句 ›</button>' +
+      '<button class="btn" id="dailyToday">今天</button>' +
+      '</div>';
+    h += '<p class="tiny" id="dailyMeta">当前：第 ' + (info.index + 1) + ' / ' + DAILY_QUOTES.length +
+      ' 句 · ' + esc(info.quote.author) + ' · ' + esc(info.dateKey) + '</p>';
+    h += '<p class="tiny">本地语料，共 ' + DAILY_QUOTES.length + ' 句；按日期确定性选择，点按钮切换。不会联网，也不会上传文字。</p>';
   } else if (state.template === 'year') {
     h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
     h += '<p class="tiny">按今天在这一年中的位置计算。</p>';
@@ -946,6 +1059,33 @@ function renderControls() {
   bind('cdTitle', 'countdownTitle');
   bind('cdDate', 'countdownDate');
   bind('moonDate', 'moonDate');
+  const dd = $('#dailyDate');
+  if (dd) {
+    dd.value = dailyPick().dateKey;
+    dd.onchange = () => {
+      state.dailyDate = /^\d{4}-\d{2}-\d{2}$/.test(dd.value) ? dd.value : localDateKey();
+      state.dailyOffset = 0;
+      render();
+      refreshDailyMeta();
+    };
+  }
+  const dailyMove = (delta) => {
+    state.dailyOffset = Math.trunc(Number(state.dailyOffset) || 0) + delta;
+    render();
+    refreshDailyMeta();
+    setStatus(delta > 0 ? '已换下一句；发送后屏幕更新' : '已换上一句；发送后屏幕更新');
+  };
+  const dp = $('#dailyPrev'); if (dp) dp.onclick = () => dailyMove(-1);
+  const dn = $('#dailyNext'); if (dn) dn.onclick = () => dailyMove(1);
+  const dt = $('#dailyToday');
+  if (dt) dt.onclick = () => {
+    state.dailyDate = localDateKey();
+    state.dailyOffset = 0;
+    if (dd) dd.value = state.dailyDate;
+    render();
+    refreshDailyMeta();
+    setStatus('已回到今天');
+  };
   const jc = $('#jsCode');
   if (jc) {
     jc.value = state.jsCode;

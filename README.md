@@ -20,8 +20,8 @@ Published copy: <https://xuchdeid.github.io/t5-airpage/> (GitHub Pages, reposito
 xuchdeid/t5-airpage, branch main). Push this directory's files, including fonts/,
 to that repository to update it.
 
-To use a different HTTPS static host, upload index.html, style.css, app.js and the
-fonts/ directory. No server code, build step, or cloud API is needed. Then set
+To use a different HTTPS static host, upload index.html, style.css, app.js,
+quotes.js, js-paper.js and the fonts/ directory. No server code, build step, or cloud API is needed. Then set
 EDITOR_URL in src/main.cpp to that URL and rebuild; the device QR points at it.
 
 The QR uses version 4 / ECC low, so keep the URL short (roughly 78 bytes). A longer
@@ -60,6 +60,18 @@ WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
 fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Noto Serif SC is SIL OFL; see
 fonts/NOTO-OFL.txt and NOTO-SOURCE.txt. Fusion Pixel is SIL OFL; ISCAS Song is
 under its permissive license.
+
+## 每日一句
+
+每日一句 is a local daily-quote card. The 77-entry corpus is in quotes.js; no
+request is made when it renders.
+
+- The date is hashed to a starting index, so the same date is stable.
+- 上一句 / 换一句 adjust an offset in memory.
+- 今天 resets to the browser's local date and index 0.
+- The date picker lets you preview other days.
+- The card auto-fits a native size from 10 to 24 px; long quotes do not clip.
+- Portrait is 122×250 and landscape is 250×122, like the other templates.
 
 ## JS 画布
 
@@ -102,6 +114,7 @@ the script itself is not uploaded to the T5 in this phase.
 - index.html — layout, orientation switch
 - style.css — responsive UI
 - app.js — pixel-font rendering, 1-bit packing, CRC32, GATT client
+- quotes.js — local quote corpus for 每日一句
 - js-paper.js — browser-side 1-bit `paper.*` API used by JS 画布
 - fonts/fusion-pixel-8px.woff2 — 8 px pixel font
 - fonts/fusion-pixel-10px.woff2 — 10 px pixel font
