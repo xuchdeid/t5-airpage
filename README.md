@@ -37,9 +37,9 @@ URL needs a larger QR version and a smaller module scale in showQrScreen().
 
 Canvas text uses web/fonts/fusion-pixel-12px.woff2 (Fusion Pixel 12px Monospaced SC,
 SIL OFL). app.js rasterises and thresholds the 12 px master, then caches 24 and 48 px
-cells as exact 2×/4× integer pixel grids (width, height and baseline per size). Do not
-switch the canvas back to system fonts: anti-aliased Chinese loses strokes at this
-resolution.
+cells as exact 2×/4× integer pixel grids (width, height and baseline per size). The
+quote template exposes a 12/24/48 px body-size selector. Do not switch the canvas back
+to system fonts: anti-aliased Chinese loses strokes at this resolution.
 
 ## Browser support
 

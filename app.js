@@ -30,6 +30,7 @@ const state = {
   photo: null,
   caption: '',
   quote: '把时间浪费在\n美好的事物上。',
+  quoteSize: 12,
   author: '—— 约翰·列侬',
   year: new Date().getFullYear(),
   week: ['周一  深度工作', '周二  复盘与计划', '周三  写作', '周四  阅读', '周五  收尾', '周六  出门走走', '周日  留白'].join('\n'),
@@ -211,20 +212,29 @@ function drawQuote(ctx) {
   ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(5, 5, W - 10, H - 10);
   const body = state.quote.trim() || '写点什么';
   const author = state.author.trim().slice(0, 20);
+  const size = [12, 24, 48].includes(Number(state.quoteSize)) ? Number(state.quoteSize) : 12;
+  const ascent = Math.round(size * 10 / 12);
 
   if (state.orientation === 'portrait') {
     text(ctx, '“', 10, 30, 24);
-    const lines = wrapText(body, W - 24, 12).slice(0, 9);
-    const lh = 17;
-    let y = Math.max(50, (H - lines.length * lh) / 2 + 8);
-    for (const line of lines) { text(ctx, line, 12, y, 12); y += lh; }
+    const lh = Math.round(size * 1.3);
+    const maxLines = size === 48 ? 3 : size === 24 ? 5 : 9;
+    const lines = wrapText(body, W - 24, size).slice(0, maxLines);
+    const top = 44, bottom = H - 32;
+    const block = lines.length * lh;
+    let y = Math.max(top + ascent, top + (bottom - top - block) / 2 + ascent);
+    for (const line of lines) { text(ctx, line, 12, y, size); y += lh; }
     if (author) text(ctx, author, 12, H - 18, 12);
     hline(ctx, 12, 34, H - 28);
   } else {
     text(ctx, '“', 10, 28, 24);
-    const lines = wrapText(body, W - 26, 12).slice(0, 4);
-    let y = 48;
-    for (const line of lines) { text(ctx, line, 12, y, 12); y += 16; }
+    const lh = Math.round(size * 1.15);
+    const maxLines = size === 48 ? 1 : size === 24 ? 1 : 3;
+    const lines = wrapText(body, W - 26, size).slice(0, maxLines);
+    const top = 44, bottom = H - 24;
+    const block = lines.length * lh;
+    let y = Math.max(top + ascent, top + (bottom - top - block) / 2 + ascent);
+    for (const line of lines) { text(ctx, line, 12, y, size); y += lh; }
     if (author) text(ctx, author, 12, H - 8, 12);
     hline(ctx, 12, 34, H - 18);
   }
@@ -573,8 +583,9 @@ function renderControls() {
     h += '<p class="tiny">原图只在本机 Canvas 里处理，不上传服务器。</p>';
   } else if (state.template === 'quote') {
     h += '<div class="row"><label>正文</label><textarea id="quote" maxlength="180">' + esc(state.quote) + '</textarea></div>';
+    h += '<div class="row"><label>正文字号</label><select id="quoteSize"><option value="12">12 px</option><option value="24">24 px</option><option value="48">48 px</option></select></div>';
     h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
-    h += '<p class="tiny">正文 12px，标题/大数字 24 / 48px，均为 1-bit 点阵栅格化。横屏最多 4 行，竖屏最多 9 行。</p>';
+    h += '<p class="tiny">12 / 24 / 48 px 均为 1-bit 点阵字模。大字号行数更少，横屏 24/48 只排一行。</p>';
   } else if (state.template === 'year') {
     h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
     h += '<p class="tiny">按今天在这一年中的位置计算。</p>';
@@ -600,6 +611,8 @@ function renderControls() {
   };
   bind('caption', 'caption');
   bind('quote', 'quote');
+  const qs = $('#quoteSize');
+  if (qs) { qs.value = String(state.quoteSize); qs.onchange = () => { state.quoteSize = Number(qs.value) || 12; render(); }; }
   bind('author', 'author');
   bind('year', 'year', v => Number(v) || new Date().getFullYear());
   bind('week', 'week');
