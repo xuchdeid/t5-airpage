@@ -1,0 +1,6 @@
+Noto Serif SC Regular
+Source: https://github.com/notofonts/noto-cjk/tree/main/Serif/SubsetOTF/SC
+File: NotoSerifSC-Regular.otf
+Subset: GB2312 + ASCII + common CJK punctuation, WOFF2.
+Used for the non-native 18/20/22 and 26/28/30/32 px Chinese sizes.
+License: SIL Open Font License 1.1; see NOTO-OFL.txt.

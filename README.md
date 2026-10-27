@@ -42,9 +42,11 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px:
   to 1-bit.
 - 14/16 px Chinese: native WenQuanYi Bitmap Song atlases (wqy14.png/json,
   wqy16.png/json), rasterised from the 13px and 12pt PCF strikes.
-- 18–32 px Chinese: web/fonts/song24.png + song24.json, generated from the
-  ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf). 24 px is the native design;
-  other sizes render the same 24 px glyph at the requested size.
+- 18/20/22 and 26/28/30/32 px Chinese: web/fonts/noto-serif-sc.woff2, a
+  GB2312 subset of Noto Serif SC, rendered and thresholded separately at each
+  target size. These are real per-size outlines, not 24 px up/downscaling.
+- 24 px Chinese: web/fonts/song24.png + song24.json, generated from the native
+  ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf).
 - 48 px Chinese: exact 2×24 Song for the large number/label slots.
 - Latin/numbers above 12 px fall back to the integer-scaled 12 px master because
   the Song and WenQuanYi atlases are CJK-only.
@@ -53,8 +55,9 @@ The quote template exposes the full 8–32 px body-size selector. Do not switch 
 canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
 
 WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
-fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Fusion Pixel is SIL OFL; ISCAS
-Song is under its permissive license.
+fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Noto Serif SC is SIL OFL; see
+fonts/NOTO-OFL.txt and NOTO-SOURCE.txt. Fusion Pixel is SIL OFL; ISCAS Song is
+under its permissive license.
 
 ## Browser support
 
@@ -78,9 +81,12 @@ Song is under its permissive license.
 - fonts/WQY-AUTHORS — WenQuanYi authors
 - fonts/WQY-README — upstream font README
 - fonts/WQY-SOURCE.txt — source/version note
-- fonts/song24.png — 24 px Song glyph atlas
+- fonts/song24.png — native 24 px Song glyph atlas
 - fonts/song24.json — atlas index and Unicode map
 - fonts/ISCAS.txt — ISCAS Song license
+- fonts/noto-serif-sc.woff2 — Noto Serif SC subset for 18–32 px detail
+- fonts/NOTO-OFL.txt — Noto Serif SC license
+- fonts/NOTO-SOURCE.txt — Noto subset source note
 
 The bitmap is 122×250, MSB-first, stride 16, exactly 4,000 bytes, 1 = black.
 Landscape is rotated into this same buffer before sending.

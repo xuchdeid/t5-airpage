@@ -67,6 +67,14 @@ let songReady = false, songImg = null, songMeta = null;
 const WQY_SIZES = [14, 16];
 const wqyFonts = {};
 
+/* Non-native intermediate sizes get a real high-resolution Song outline,
+ * thresholded per target size. This avoids nearest-neighbour downscaling of
+ * the 24 px bitmap (which drops strokes at 18/20/22) and also gives a true
+ * outline source for 26-32 instead of enlarging 24 px. 24 px itself stays on
+ * the hand-tuned ISCAS bitmap. */
+const DETAIL_SIZES = [18, 20, 22, 26, 28, 30, 32];
+let serifReady = false;
+
 const PIXEL_FACES = {
   8:  { family: 'T5Pixel8',  file: 'fonts/fusion-pixel-8px.woff2' },
   10: { family: 'T5Pixel10', file: 'fonts/fusion-pixel-10px.woff2' },
@@ -114,6 +122,14 @@ async function loadWqyFonts() {
   results.forEach((r, i) => {
     if (r.status === 'rejected') console.warn('WQY ' + WQY_SIZES[i] + 'px unavailable', r.reason);
   });
+}
+
+async function loadSerifFont() {
+  const face = new FontFace('T5Serif', 'url("fonts/noto-serif-sc.woff2")');
+  await face.load();
+  document.fonts.add(face);
+  await document.fonts.load('20px T5Serif');
+  serifReady = true;
 }
 
 function isSongChar(ch) {
@@ -164,6 +180,40 @@ function wqyGlyph(ch, size) {
   return g;
 }
 
+function serifGlyph(ch, size) {
+  if (!serifReady) return null;
+  const key = 'serif:' + size + ':' + ch;
+  let g = glyphs.get(key);
+  if (g) return g;
+
+  const asc = Math.round(size * 1.17);
+  const cellH = Math.round(size * 1.50);
+  measureCtx.font = size + 'px T5Serif';
+  const m = measureCtx.measureText(ch);
+  const w = Math.max(1, Math.ceil(m.width));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = cellH;
+  const g2 = c.getContext('2d', { willReadFrequently: true });
+  g2.clearRect(0, 0, w, cellH);
+  g2.font = size + 'px T5Serif';
+  g2.textBaseline = 'alphabetic';
+  g2.fillStyle = '#000';
+  g2.fillText(ch, 0, asc);
+
+  const src = g2.getImageData(0, 0, w, cellH);
+  const out = document.createElement('canvas');
+  out.width = w; out.height = cellH;
+  const o = out.getContext('2d');
+  const id = o.createImageData(w, cellH);
+  for (let i = 0; i < w * cellH; i++) {
+    if (src.data[i * 4 + 3] > 96) id.data[i * 4 + 3] = 255;
+  }
+  o.putImageData(id, 0, 0);
+  g = { canvas: out, w, size: cellH, baseline: asc, serif: true };
+  glyphs.set(key, g);
+  return g;
+}
+
 const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
 
 function ascentFor(size) {
@@ -171,6 +221,7 @@ function ascentFor(size) {
   if (size === 10) return 8;
   if (size === 12) return 10;
   if (wqyFonts[size]) return wqyFonts[size].meta.ascent;
+  if (serifReady && DETAIL_SIZES.includes(size)) return Math.round(size * 1.17);
   if (size === 14) return 12;
   if (size === 16) return 14;
   return Math.round(size * 22 / 24); // 24 px Song ascent
@@ -216,6 +267,10 @@ function glyph(ch, size = 12) {
   if ((size === 14 || size === 16) && isSongChar(ch)) {
     const wg = wqyGlyph(ch, size);
     if (wg) return wg;
+  }
+  if (DETAIL_SIZES.includes(size) && isSongChar(ch)) {
+    const sg = serifGlyph(ch, size);
+    if (sg) return sg;
   }
   if (size >= 14 && isSongChar(ch)) {
     const sg = songGlyph(ch, size);
@@ -950,6 +1005,12 @@ async function boot() {
       songReady = false;
     }
     await loadWqyFonts();
+    try {
+      await loadSerifFont();
+    } catch (e) {
+      console.warn('Noto Serif detail face unavailable; 18-32 will fall back to 24px Song', e);
+      serifReady = false;
+    }
     setOrientation('portrait');
   } catch (e) {
     console.error(e);
