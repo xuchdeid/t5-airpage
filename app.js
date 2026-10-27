@@ -150,15 +150,16 @@ function wqyGlyph(ch, size) {
   const key = 'wqy:' + size + ':' + ch;
   let g = glyphs.get(key);
   if (g) return g;
-  const cell = f.meta.cell;
+  const cellW = f.meta.cellW || f.meta.cell;
+  const cellH = f.meta.cellH || f.meta.cell;
   const out = document.createElement('canvas');
-  out.width = cell; out.height = cell;
+  out.width = cellW; out.height = cellH;
   const o = out.getContext('2d');
   o.imageSmoothingEnabled = false;
-  const sx = (idx % f.meta.cols) * cell;
-  const sy = Math.floor(idx / f.meta.cols) * cell;
-  o.drawImage(f.img, sx, sy, cell, cell, 0, 0, cell, cell);
-  g = { canvas: out, w: cell, size: cell, baseline: f.meta.ascent, wqy: true };
+  const sx = (idx % f.meta.cols) * cellW;
+  const sy = Math.floor(idx / f.meta.cols) * cellH;
+  o.drawImage(f.img, sx, sy, cellW, cellH, 0, 0, cellW, cellH);
+  g = { canvas: out, w: cellW, size: cellH, baseline: f.meta.ascent, wqy: true };
   glyphs.set(key, g);
   return g;
 }
