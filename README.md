@@ -42,14 +42,13 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px:
   to 1-bit.
 - 14/16 px Chinese: native WenQuanYi Bitmap Song atlases (wqy14.png/json,
   wqy16.png/json), rasterised from the 13px and 12pt PCF strikes.
-- 18/20/22 and 26/28/30/32 px Chinese: web/fonts/noto-serif-sc.woff2, a
+- 18/20/22/24/26/28/30/32/48 px Chinese: web/fonts/noto-serif-sc.woff2, a
   GB2312 subset of Noto Serif SC, rendered and thresholded separately at each
-  target size. These are real per-size outlines, not 24 px up/downscaling.
-- 24 px Chinese: web/fonts/song24.png + song24.json, generated from the native
-  ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf).
-- 48 px Chinese: exact 2×24 Song for the large number/label slots.
-- Latin/numbers above 12 px fall back to the integer-scaled 12 px master because
-  the Song and WenQuanYi atlases are CJK-only.
+  target size. This includes 24 and 48; neither is a bitmap scaled up or down.
+- Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
+  they fall back to the integer-scaled 12 px master.
+- 24 px Song: web/fonts/song24.png + song24.json remains only as a fallback for
+  rare glyphs outside the Noto subset.
 
 The quote template exposes the full 8–32 px body-size selector. Do not switch the
 canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
