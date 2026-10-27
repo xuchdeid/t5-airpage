@@ -68,60 +68,61 @@ async function loadPixelFont() {
   fontReady = true;
 }
 
-function glyph(ch) {
-  let g = glyphs.get(ch);
+/* Actual 12 / 24 / 48 px rasterisation. Each size has its own glyph cell,
+ * width and baseline; 24 and 48 are not runtime-scaled 12 px thumbnails. */
+const FONT_SIZES = [12, 24, 48];
+
+function glyph(ch, size = 12) {
+  const key = size + ':' + ch;
+  let g = glyphs.get(key);
   if (g) return g;
 
+  measureCtx.font = size + 'px T5Pixel';
   const m = measureCtx.measureText(ch);
   const w = Math.max(1, Math.ceil(m.width));
+  const baseline = Math.round(size * 10 / 12);
   const c = document.createElement('canvas');
-  c.width = w; c.height = 12;
+  c.width = w; c.height = size;
   const g2 = c.getContext('2d', { willReadFrequently: true });
-  g2.clearRect(0, 0, w, 12);
-  g2.font = '12px T5Pixel';
+  g2.clearRect(0, 0, w, size);
+  g2.font = size + 'px T5Pixel';
   g2.textBaseline = 'alphabetic';
   g2.fillStyle = '#000';
-  g2.fillText(ch, 0, 10);
+  g2.fillText(ch, 0, baseline);
 
-  const src = g2.getImageData(0, 0, w, 12);
+  const src = g2.getImageData(0, 0, w, size);
   const out = document.createElement('canvas');
-  out.width = w; out.height = 12;
+  out.width = w; out.height = size;
   const o = out.getContext('2d');
-  const id = o.createImageData(w, 12);
-  for (let i = 0; i < w * 12; i++) {
+  const id = o.createImageData(w, size);
+  for (let i = 0; i < w * size; i++) {
     if (src.data[i * 4 + 3] > 96) {
       id.data[i * 4 + 3] = 255;      // black, fully opaque
     }
   }
   o.putImageData(id, 0, 0);
-  g = { canvas: out, w };
-  glyphs.set(ch, g);
+  g = { canvas: out, w, size, baseline };
+  glyphs.set(key, g);
   return g;
 }
 
-function glyphScale(size) {
-  return Math.max(1, Math.round(size / 12));
-}
-
 function textWidth(str, size = 12) {
-  const s = glyphScale(size);
   let w = 0;
-  for (const ch of Array.from(String(str))) w += glyph(ch).w * s;
+  for (const ch of Array.from(String(str))) w += glyph(ch, size).w;
   return w;
 }
 
 /* x is the anchor; y is the alphabetic baseline, like ctx.fillText(). */
 function text(ctx, str, x, y, size = 12, align = 'left') {
-  const s = glyphScale(size);
   const total = textWidth(str, size);
   let cx = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
   ctx.imageSmoothingEnabled = false;
   for (const ch of Array.from(String(str))) {
-    const g = glyph(ch);
+    const g = glyph(ch, size);
     if (g.w > 0) {
-      ctx.drawImage(g.canvas, Math.round(cx), Math.round(y - 10 * s), g.w * s, 12 * s);
+      ctx.drawImage(g.canvas, Math.round(cx), Math.round(y - g.baseline));
     }
-    cx += g.w * s;
+    cx += g.w;
   }
 }
 
@@ -555,7 +556,7 @@ function renderControls() {
   } else if (state.template === 'quote') {
     h += '<div class="row"><label>正文</label><textarea id="quote" maxlength="180">' + esc(state.quote) + '</textarea></div>';
     h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
-    h += '<p class="tiny">使用 12px 点阵字体；中文按 1-bit 像素直接绘制。横屏最多 4 行，竖屏最多 9 行。</p>';
+    h += '<p class="tiny">正文 12px，标题/大数字 24 / 48px，均为 1-bit 点阵栅格化。横屏最多 4 行，竖屏最多 9 行。</p>';
   } else if (state.template === 'year') {
     h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
     h += '<p class="tiny">按今天在这一年中的位置计算。</p>';
@@ -801,6 +802,7 @@ async function boot() {
 
   window.__t5editor = {
     state, templates, render, crc32, W, H, PANEL_W, PANEL_H, STRIDE,
+    fontSizes: FONT_SIZES, textWidth, glyph,
     getPacked: () => packed,
     getBits: () => bits,
     setOrientation
