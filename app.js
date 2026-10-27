@@ -48,15 +48,20 @@ const base = document.createElement('canvas');
 base.width = W; base.height = H;
 let bctx = base.getContext('2d', { willReadFrequently: true });
 
-/* ---------- pixel font ----------
- * A real bitmap path: the 12px Fusion Pixel outline is rasterised once per
- * character, thresholded to 1-bit, and then drawn with nearest-neighbour
- * scaling. No system font, no anti-aliased Chinese in the final image.
+/* ---------- pixel fonts ----------
+ * 12px Chinese: Fusion Pixel master, thresholded to 1-bit.
+ * 24/48px Chinese: a separate 24x24 ISCAS Song bitmap (true 24px detail,
+ * 48px is 2x24). Latin/numbers stay on the integer-scaled 12px master.
+ * No system font and no anti-aliased Chinese in the final image.
  */
 const glyphs = new Map();
 let glyphCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
 let measureCtx = document.createElement('canvas').getContext('2d');
 let fontReady = false;
+
+/* 24x24 ISCAS Song bitmap, used for Chinese at 24/48 px. This is a real
+ * 24 px design, not a 12 px glyph enlarged. Latin stays on the 12 px master. */
+let songReady = false, songImg = null, songMeta = null;
 
 async function loadPixelFont() {
   const face = new FontFace('T5Pixel', 'url("fonts/fusion-pixel-12px.woff2")');
@@ -67,6 +72,49 @@ async function loadPixelFont() {
   glyphCtx.textBaseline = 'alphabetic';
   measureCtx.font = '12px T5Pixel';
   fontReady = true;
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image load failed: ' + src));
+    img.src = src;
+  });
+}
+
+async function loadSongFont() {
+  const [img, meta] = await Promise.all([
+    loadImage('fonts/song24.png'),
+    fetch('fonts/song24.json').then(r => r.json())
+  ]);
+  songImg = img; songMeta = meta; songReady = true;
+}
+
+function isSongChar(ch) {
+  const cp = ch.codePointAt(0);
+  return cp >= 0x2E80 || (cp >= 0x3000 && cp <= 0x303F) ||
+         (cp >= 0xFF00 && cp <= 0xFFEF);
+}
+
+function songGlyph(ch, size) {
+  if (!songReady || !songMeta) return null;
+  const idx = songMeta.map[String(ch.codePointAt(0))];
+  if (idx === undefined) return null;
+  const key = 'song:' + size + ':' + ch;
+  let g = glyphs.get(key);
+  if (g) return g;
+  const cell = songMeta.cell;
+  const out = document.createElement('canvas');
+  out.width = size; out.height = size;
+  const o = out.getContext('2d');
+  o.imageSmoothingEnabled = false;
+  const sx = (idx % songMeta.cols) * cell;
+  const sy = Math.floor(idx / songMeta.cols) * cell;
+  o.drawImage(songImg, sx, sy, cell, cell, 0, 0, size, size);
+  g = { canvas: out, w: size, size, baseline: Math.round(songMeta.ascent * size / 24), song: true };
+  glyphs.set(key, g);
+  return g;
 }
 
 /* 12 / 24 / 48 px bitmap cells. The 12 px master is thresholded once;
@@ -108,19 +156,23 @@ function baseGlyph12(ch) {
 }
 
 function glyph(ch, size = 12) {
+  if (size >= 24 && isSongChar(ch)) {
+    const sg = songGlyph(ch, size);
+    if (sg) return sg;
+  }
   const key = size + ':' + ch;
   let g = glyphs.get(key);
   if (g) return g;
   if (size === 12) return baseGlyph12(ch);
 
   const b = baseGlyph12(ch);
-  const s = Math.max(1, Math.round(size / 12));
+  const s = size / 12;
   const out = document.createElement('canvas');
-  out.width = b.w * s; out.height = 12 * s;
+  out.width = Math.max(1, Math.round(b.w * s)); out.height = size;
   const o = out.getContext('2d');
   o.imageSmoothingEnabled = false;
   o.drawImage(b.canvas, 0, 0, out.width, out.height);
-  g = { canvas: out, w: out.width, size: out.height, baseline: 10 * s };
+  g = { canvas: out, w: out.width, size, baseline: Math.round(10 * s) };
   glyphs.set(key, g);
   return g;
 }
@@ -135,11 +187,12 @@ function textWidth(str, size = 12) {
 function text(ctx, str, x, y, size = 12, align = 'left') {
   const total = textWidth(str, size);
   let cx = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
+  const ascent = size === 12 ? 10 : Math.round(size * 22 / 24);
   ctx.imageSmoothingEnabled = false;
   for (const ch of Array.from(String(str))) {
     const g = glyph(ch, size);
     if (g.w > 0) {
-      ctx.drawImage(g.canvas, Math.round(cx), Math.round(y - g.baseline));
+      ctx.drawImage(g.canvas, Math.round(cx), Math.round(y - ascent));
     }
     cx += g.w;
   }
@@ -825,6 +878,12 @@ async function boot() {
 
   try {
     await loadPixelFont();
+    try {
+      await loadSongFont();
+    } catch (e) {
+      console.warn('24px Song atlas unavailable, Chinese will fall back to 12px cells', e);
+      songReady = false;
+    }
     setOrientation('portrait');
   } catch (e) {
     console.error(e);
@@ -834,6 +893,7 @@ async function boot() {
   window.__t5editor = {
     state, templates, render, crc32, W, H, PANEL_W, PANEL_H, STRIDE,
     fontSizes: FONT_SIZES, textWidth, glyph,
+    songReady: () => songReady,
     getPacked: () => packed,
     getBits: () => bits,
     setOrientation

@@ -35,11 +35,18 @@ URL needs a larger QR version and a smaller module scale in showQrScreen().
 
 ## Pixel font
 
-Canvas text uses web/fonts/fusion-pixel-12px.woff2 (Fusion Pixel 12px Monospaced SC,
-SIL OFL). app.js rasterises and thresholds the 12 px master, then caches 24 and 48 px
-cells as exact 2×/4× integer pixel grids (width, height and baseline per size). The
-quote template exposes a 12/24/48 px body-size selector. Do not switch the canvas back
-to system fonts: anti-aliased Chinese loses strokes at this resolution.
+Canvas text uses two bitmap sources:
+
+- 12 px Chinese and all Latin: web/fonts/fusion-pixel-12px.woff2 (SIL OFL),
+  rasterised and thresholded to 1-bit.
+- 24/48 px Chinese: web/fonts/song24.png + song24.json, generated from the
+  ISCAS/GUO BIAO 24×24 Song bitmap (gb24st.bdf). This is a real 24 px design, not
+  12 px scaled; 48 px is an exact 2×24 bitmap.
+- Latin/numbers at 24/48 px fall back to the integer-scaled 12 px master because
+  the Song bitmap is GB2312-only.
+
+The quote template exposes a 12/24/48 px body-size selector. Do not switch the canvas
+back to system fonts: anti-aliased Chinese loses strokes at this resolution.
 
 ## Browser support
 
@@ -53,8 +60,11 @@ to system fonts: anti-aliased Chinese loses strokes at this resolution.
 - index.html — layout, orientation switch
 - style.css — responsive UI
 - app.js — pixel-font rendering, 1-bit packing, CRC32, GATT client
-- fonts/fusion-pixel-12px.woff2 — pixel font
-- fonts/OFL.txt — font license
+- fonts/fusion-pixel-12px.woff2 — 12 px pixel font
+- fonts/OFL.txt — Fusion Pixel license
+- fonts/song24.png — 24 px Song glyph atlas
+- fonts/song24.json — atlas index and Unicode map
+- fonts/ISCAS.txt — ISCAS Song license
 
 The bitmap is 122×250, MSB-first, stride 16, exactly 4,000 bytes, 1 = black.
 Landscape is rotated into this same buffer before sending.
