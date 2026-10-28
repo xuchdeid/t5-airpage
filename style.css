@@ -72,6 +72,16 @@ h2{font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 .controls .daily-actions .btn{flex:1;min-width:72px;padding:8px 6px;font-size:12px}
 .compat{margin:14px 0 0;font-size:11px;line-height:1.5;color:var(--muted)}
 .compat.bad{color:var(--bad)}
+.controls .device-push{margin:14px 0 12px;padding:10px 0 0;border-top:1px solid var(--line)}
+.controls .device-push summary{cursor:pointer;font-size:12px;font-weight:600;margin:0 0 9px;color:var(--ink)}
+.controls .device-push .tiny{margin:-2px 0 10px}
+.controls textarea.device-code{min-height:176px}
+.controls .device-file{flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}
+.controls .device-file input{flex:1;min-width:0}
+.controls .device-actions{flex-direction:row;gap:8px}
+.controls .device-actions .btn{flex:1;min-width:0;padding:8px 6px;font-size:12px}
+.controls .bytecount{font-size:11px;color:var(--muted);white-space:nowrap}
+.controls .bytecount.bad{color:var(--bad);font-weight:600}
 .foot{display:flex;justify-content:center;gap:18px;padding:8px 18px 22px;color:#a1a1aa;font-size:11px}
 @media(max-width:900px){
   .layout{grid-template-columns:1fr;gap:14px;padding:12px}

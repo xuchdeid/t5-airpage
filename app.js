@@ -7,7 +7,25 @@ const DATA    = '5f9b0003-7a6b-4c2d-9e8f-1234567890ab';
 const INFO    = '5f9b0004-7a6b-4c2d-9e8f-1234567890ab';
 const PANEL_W = 122, PANEL_H = 250, STRIDE = 16;
 const IMAGE_BYTES = STRIDE * PANEL_H;
+const SCRIPT_MAX = 4096;
+const CMD_BEGIN_SCRIPT = 0x10, CMD_COMMIT_SCRIPT = 0x12;
+const CMD_RUN_SCRIPT = 0x13, CMD_ABORT_SCRIPT = 0x14;
 let W = PANEL_W, H = PANEL_H;
+
+const DEVICE_SCRIPT_DEFAULT = [
+  'var W = paper.width();',
+  'var H = paper.height();',
+  'var M = 4;',
+  'paper.clear(0);',
+  'paper.fillRect(0, 0, W, 38, 1);',
+  "paper.text(M, 1, '每日一句', 1, 0);",
+  "paper.text(M, 52, 'BLE', 1, 1);",
+  "paper.text(M, 92, '知是行之', 1, 1);",
+  "paper.text(M, 128, '始，行是', 1, 1);",
+  "paper.text(M, 164, '知之成。', 1, 1);",
+  "paper.text(M, H - 24, 'AirPage', 1, 1);",
+  'paper.commit();'
+].join('\n');
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -38,6 +56,13 @@ const jsSavedExample = (() => {
   }
   return 'custom';
 })();
+const deviceSavedCode = (() => {
+  try {
+    const saved = localStorage.getItem('t5.device.code');
+    if (saved !== null) return saved;
+  } catch (e) {}
+  return DEVICE_SCRIPT_DEFAULT;
+})();
 
 const state = {
   template: 'daily',
@@ -51,7 +76,8 @@ const state = {
   })(),
   dailyOffset: 0,
   jsExample: jsSavedExample,
-  jsCode: jsSavedCode
+  jsCode: jsSavedCode,
+  deviceCode: deviceSavedCode
 };
 
 /* ---------- canvases ---------- */
@@ -501,6 +527,31 @@ function runJS() {
   }
 }
 
+/* ---------- device ES5 source ---------- */
+function deviceByteLength() {
+  return new TextEncoder().encode(state.deviceCode).length;
+}
+function saveDeviceCode() {
+  try { localStorage.setItem('t5.device.code', state.deviceCode); } catch (e) {}
+}
+function updateDeviceMeta() {
+  const el = $('#scriptBytes');
+  if (!el) return;
+  const n = deviceByteLength();
+  el.textContent = n + ' / ' + SCRIPT_MAX + ' B';
+  el.classList.toggle('bad', n === 0 || n > SCRIPT_MAX);
+}
+function deviceSourceIssue() {
+  const src = state.deviceCode;
+  if (!src.trim()) return '脚本为空';
+  if (/(^|[^A-Za-z0-9_])(const|let|class)([^A-Za-z0-9_]|$)/.test(src)) return '包含 const/let/class，设备只接受 ES5 var/function';
+  if (/=>/.test(src)) return '包含箭头函数 =>，设备只接受 ES5 function';
+  if (src.indexOf(String.fromCharCode(96)) >= 0) return '包含模板字符串，设备不支持';
+  const bad = src.match(/paper[.](?:colors|size|drawTextEx|measureText|drawRect|drawLine|drawCircle|beginPath|font|wrapText|textBox|ui|flex)([^A-Za-z0-9_]|$)/);
+  if (bad) return '使用了浏览器专用 API ' + bad[0];
+  return '';
+}
+
 
 /* ---------- 每日一句 ---------- */
 const DAILY_QUOTES = (window.T5_QUOTES && window.T5_QUOTES.length)
@@ -778,8 +829,16 @@ function renderControls() {
       '<option value="custom">自定义</option>' +
       '</select></div>';
     h += '<div class="row"><label>脚本</label><textarea id="jsCode" class="code" rows="15" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
-    h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送</span></div>';
-    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。布局：paper.ui.column / row / text / spacer / divider + paper.render，或 Frame 风格 paper.flex.render({x, y, w, h, children})；绘制：clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit；文字：font / text / measure / wrapText / textBox。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
+    h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送位图</span></div>';
+    h += '<details class="device-push" open>';
+    h += '<summary>推送到设备（ES5 脚本）</summary>';
+    h += '<p class="tiny">这里发送的是另一套设备脚本，不是上方浏览器代码。设备只支持 ES5（var/function，不支持 const/let/=>/模板字符串），API 只有 paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。24 px 字库目前覆盖内置语料 + ASCII，超出范围会显示豆腐块。</p>';
+    h += '<div class="row"><label>设备脚本（UTF-8，≤' + SCRIPT_MAX + ' B）</label><textarea id="deviceCode" class="code device-code" rows="10" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.deviceCode) + '</textarea></div>';
+    h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span id="scriptBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
+    h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button></div>';
+    h += '<p class="tiny">推送成功后设备会执行、刷新并保存到 NVS；失败会保留上一版。设备脚本最长 4096 B；运行已存不会重新发送源码。</p>';
+    h += '</details>';
+    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。布局：paper.ui.column / row / text / spacer / divider + paper.render，或 Frame 风格 paper.flex.render({x, y, w, h, children})；绘制：clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit；文字：font / text / measure / wrapText / textBox。上方脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
   }
   c.innerHTML = h;
 
@@ -842,6 +901,43 @@ function renderControls() {
   }
   const jr = $('#jsRun');
   if (jr) jr.onclick = runJS;
+
+  const dc = $('#deviceCode');
+  if (dc) {
+    dc.addEventListener('input', () => {
+      state.deviceCode = dc.value;
+      saveDeviceCode();
+      updateDeviceMeta();
+      syncBtButtons();
+    });
+  }
+  const sf = $('#scriptFile');
+  if (sf) {
+    sf.onchange = async () => {
+      const file = sf.files && sf.files[0];
+      if (!file) return;
+      if (file.size > 65536) { setStatus('脚本文件过大（>64 KB）', 'bad'); sf.value = ''; return; }
+      try {
+        const text = await file.text();
+        state.deviceCode = text;
+        if (dc) dc.value = text;
+        saveDeviceCode();
+        updateDeviceMeta();
+        syncBtButtons();
+        setStatus('已载入 ' + file.name + '；检查后点“推送脚本”');
+      } catch (e) {
+        setStatus('读取脚本失败：' + (e.message || e), 'bad');
+      }
+      sf.value = '';
+    };
+  }
+  const sp = $('#scriptPush');
+  if (sp) sp.onclick = pushScript;
+  const sr = $('#scriptRun');
+  if (sr) sr.onclick = runStoredScript;
+  updateDeviceMeta();
+  syncBtButtons();
+
   const d = $('#dither'); if (d) { d.value = state.dither; d.onchange = () => { state.dither = d.value; render(); }; }
   const f = $('#photoFile'); if (f) f.onchange = () => {
     const file = f.files && f.files[0]; if (!file) return;
@@ -856,6 +952,24 @@ function renderControls() {
 let btDevice = null, btServer = null, btService = null;
 let ctrlChar = null, dataChar = null, infoChar = null;
 let doneWaiter = null;
+let btBusy = false, transferKind = '', deviceSupportsScript = false;
+
+function syncBtButtons() {
+  const connected = !!ctrlChar;
+  const n = deviceByteLength();
+  const send = $('#send');
+  if (send) send.disabled = !connected || btBusy;
+  const push = $('#scriptPush');
+  if (push) push.disabled = !connected || !deviceSupportsScript || btBusy || n === 0 || n > SCRIPT_MAX;
+  const run = $('#scriptRun');
+  if (run) run.disabled = !connected || !deviceSupportsScript || btBusy;
+  const file = $('#scriptFile');
+  if (file) file.disabled = btBusy;
+}
+function setBtBusy(v) {
+  btBusy = !!v;
+  syncBtButtons();
+}
 
 async function connect() {
   if (!navigator.bluetooth) {
@@ -867,7 +981,7 @@ async function connect() {
     return;
   }
   const btn = $('#connect');
-  btn.disabled = true; setStatus('正在搜索 T5…');
+  btn.disabled = true; deviceSupportsScript = false; setStatus('正在搜索 T5…');
   try {
     btDevice = await navigator.bluetooth.requestDevice({
       filters: [{ services: [SERVICE] }],
@@ -884,13 +998,15 @@ async function connect() {
     if (String.fromCharCode(...info.slice(0, 4)) !== 'T5AP') throw new Error('not a T5 AirPage device ' + [...info].map(b => b.toString(16).padStart(2, '0')).join(''));
     const w = info[6] | info[7] << 8, h = info[8] | info[9] << 8, stride = info[10] | info[11] << 8;
     if (w !== PANEL_W || h !== PANEL_H || stride !== STRIDE) throw new Error('panel mismatch ' + w + 'x' + h);
+    deviceSupportsScript = !!(info[5] & 2);
     await ctrlChar.startNotifications();
     ctrlChar.addEventListener('characteristicvaluechanged', onNotify);
     $('#devname').textContent = btDevice.name || 'T5';
     $('#exit').hidden = false;
-    $('#send').disabled = false;
-    setDot('on'); setStatus('已连接 ' + (btDevice.name || 'T5') + '，可以发送');
+    setDot('on');
+    setStatus('已连接 ' + (btDevice.name || 'T5') + (deviceSupportsScript ? '，可发送图像/脚本' : '；此固件不支持脚本推送'));
     btn.textContent = '已连接'; btn.disabled = true;
+    syncBtButtons();
   } catch (e) {
     console.warn(e);
     try { if (btDevice && btDevice.gatt.connected) btDevice.gatt.disconnect(); } catch (_) {}
@@ -901,9 +1017,15 @@ async function connect() {
 
 function onDisconnected() {
   ctrlChar = dataChar = infoChar = null; btService = null; btServer = null;
-  $('#send').disabled = true; $('#exit').hidden = true;
+  deviceSupportsScript = false; btBusy = false; transferKind = '';
+  if (doneWaiter) {
+    const r = doneWaiter; doneWaiter = null;
+    r.reject(new Error('设备已断开'));
+  }
+  $('#exit').hidden = true;
   $('#devname').textContent = '未连接'; $('#connect').disabled = false; $('#connect').textContent = '连接 T5';
   setDot(''); setStatus('设备已断开，仍在广播');
+  syncBtButtons();
 }
 
 function onNotify(e) {
@@ -911,15 +1033,29 @@ function onNotify(e) {
   if (dv.byteLength < 8 || dv.getUint8(0) !== 0x80) return;
   const code = dv.getUint8(1);
   const val = dv.getUint32(4, true);
-  if (code === 0) { setStatus('设备已准备好，接收中…'); setDot('busy'); }
-  else if (code === 1) { setStatus('已接收 ' + val + ' 字节，正在刷新屏幕…'); setDot('busy'); }
-  else if (code === 2) {
-    setStatus('✓ 已显示在 T5 上', 'ok'); setDot('on'); setProgress(100);
+  if (code === 0) {
+    setStatus(transferKind === 'script' ? '设备已准备好，接收脚本…' :
+      transferKind === 'run' ? '正在运行已存脚本…' : '设备已准备好，接收中…');
+    setDot('busy');
+  } else if (code === 1) {
+    setStatus(transferKind === 'script'
+      ? '脚本已接收 ' + val + ' 字节，执行并刷新屏幕…'
+      : '已接收 ' + val + ' 字节，正在刷新屏幕…');
+    setDot('busy');
+  } else if (code === 2) {
+    setStatus(transferKind === 'script' ? '✓ 脚本已推送并显示在 T5 上' :
+      transferKind === 'run' ? '✓ 已运行设备中保存的脚本' : '✓ 已显示在 T5 上', 'ok');
+    setDot('on'); setProgress(100);
     if (doneWaiter) { const r = doneWaiter; doneWaiter = null; r.resolve(); }
   } else {
-    const names = {3:'尺寸/格式错误',4:'CRC 校验失败',5:'数据偏移错误',6:'已取消',7:'状态错误',8:'渲染失败',9:'传输超时'};
+    const names = {
+      3:'尺寸/格式错误', 4:'CRC 校验失败', 5:'数据偏移错误', 6:'已取消',
+      7:'状态错误', 8:'渲染失败', 9:'传输超时', 10:'内存不足',
+      11:'脚本执行失败（ES5 语法/API/字库）', 12:'NVS 保存失败（脚本过大）'
+    };
     const msg = names[code] || ('错误 ' + code);
-    setStatus('发送失败：' + msg, 'bad'); setDot('on');
+    setStatus((transferKind === 'script' ? '脚本推送失败：' : '发送失败：') + msg, 'bad');
+    setDot('on');
     if (doneWaiter) { const r = doneWaiter; doneWaiter = null; r.reject(new Error(msg)); }
   }
 }
@@ -961,8 +1097,9 @@ async function sendImage() {
       return;
     }
   }
-  const btn = $('#send');
-  btn.disabled = true; setDot('busy'); setProgress(0);
+  if (btBusy) return;
+  transferKind = 'image';
+  setBtBusy(true); setDot('busy'); setProgress(0);
   try {
     const crc = crc32(packed);
     async function beginTransfer() {
@@ -1012,7 +1149,96 @@ async function sendImage() {
     console.warn(e);
     setStatus('发送失败：' + (e.message || e), 'bad');
   } finally {
-    btn.disabled = false;
+    transferKind = '';
+    setBtBusy(false);
+    setDot(btDevice && btDevice.gatt.connected ? 'on' : '');
+  }
+}
+
+async function pushScript() {
+  if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
+  if (!deviceSupportsScript) { setStatus('当前固件不支持脚本推送（info flags 无脚本位）', 'bad'); return; }
+  if (btBusy) return;
+  const issue = deviceSourceIssue();
+  if (issue) { setStatus('设备脚本检查：' + issue, 'bad'); return; }
+  const source = new TextEncoder().encode(state.deviceCode);
+  if (source.length === 0) { setStatus('设备脚本为空', 'bad'); return; }
+  if (source.length > SCRIPT_MAX) {
+    setStatus('设备脚本 ' + source.length + ' B，超过 ' + SCRIPT_MAX + ' B 上限', 'bad');
+    return;
+  }
+
+  transferKind = 'script';
+  setBtBusy(true); setDot('busy'); setProgress(0);
+  const crc = crc32(source);
+  const begin = new Uint8Array(9);
+  const bv = new DataView(begin.buffer);
+  bv.setUint8(0, CMD_BEGIN_SCRIPT);
+  bv.setUint32(1, source.length, true);
+  bv.setUint32(5, crc, true);
+
+  try {
+    let chunk = 100;
+    let withResponse = false;
+    let attempt = 0;
+    for (;;) {
+      try {
+        await writeCtrl(begin);
+        let off = 0;
+        setProgress(0);
+        while (off < source.length) {
+          const n = Math.min(chunk, source.length - off);
+          const buf = new Uint8Array(2 + n);
+          new DataView(buf.buffer).setUint16(0, off, true);
+          buf.set(source.subarray(off, off + n), 2);
+          await writeData(buf, withResponse);
+          off += n;
+          setProgress(off / source.length * 90);
+        }
+        break;
+      } catch (e) {
+        if (attempt++ === 0) {
+          chunk = 20; withResponse = true;
+          setStatus('MTU 较小，改用 20 字节分片…');
+          try { await writeCtrl(new Uint8Array([CMD_ABORT_SCRIPT])); } catch (_) {}
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    setProgress(95);
+    const done = waitDone(30000);
+    await writeCtrl(new Uint8Array([CMD_COMMIT_SCRIPT]));
+    setStatus('脚本已提交，设备执行并刷新屏幕…');
+    await done;
+  } catch (e) {
+    console.warn(e);
+    setStatus('脚本推送失败：' + (e.message || e), 'bad');
+  } finally {
+    transferKind = '';
+    setBtBusy(false);
+    setDot(btDevice && btDevice.gatt.connected ? 'on' : '');
+  }
+}
+
+async function runStoredScript() {
+  if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
+  if (!deviceSupportsScript) { setStatus('当前固件不支持脚本', 'bad'); return; }
+  if (btBusy) return;
+  transferKind = 'run';
+  setBtBusy(true); setDot('busy'); setProgress(0);
+  try {
+    const done = waitDone(30000);
+    await writeCtrl(new Uint8Array([CMD_RUN_SCRIPT]));
+    setStatus('已请求运行设备中保存的脚本…');
+    await done;
+  } catch (e) {
+    console.warn(e);
+    setStatus('运行已存脚本失败：' + (e.message || e), 'bad');
+  } finally {
+    transferKind = '';
+    setBtBusy(false);
     setDot(btDevice && btDevice.gatt.connected ? 'on' : '');
   }
 }
@@ -1083,7 +1309,9 @@ async function boot() {
     songReady: () => songReady,
     getPacked: () => packed,
     getBits: () => bits,
-    setOrientation
+    setOrientation,
+    deviceByteLength, deviceSourceIssue, updateDeviceMeta,
+    pushScript, runStoredScript, syncBtButtons
   };
 }
 document.addEventListener('DOMContentLoaded', boot);

@@ -190,8 +190,45 @@ and its single-line text behavior; `paper.ui` fills the canvas and
 auto-measures/wraps text. Both use the native AirPage font backend in the
 editor.
 
-The browser preview is exactly the 4,000-byte bitmap that is sent over BLE;
-the script itself is not uploaded to the T5 in this phase.
+The browser preview is exactly the 4,000-byte bitmap sent by the Send button.
+
+## 推送到设备（ES5 脚本）
+
+The JS 画布 controls include a separate **推送到设备（ES5 脚本）** panel. This is
+not the browser JS sandbox: it uploads source text to the T5, where the firmware
+executes it in MicroQuickJS, renders the framebuffer, refreshes the panel, and
+stores the source plus image in NVS.
+
+- Limit: **4096 bytes UTF-8**; the byte counter turns red above the limit.
+- Buttons: 推送脚本 sends a new source; 运行已存 runs the source already in NVS.
+- A .js/.txt file can be loaded into the textarea.
+- The push button is disabled when the connected firmware reports no script bit
+  in the info characteristic (flags bit 1).
+- Source is checked for common non-ES5 constructs (const/let/class, arrow
+  functions, template strings) and browser-only paper APIs before sending.
+- Transport: control 0x10 + total u32 + crc32 u32, framed data writes, then
+  control 0x12. The client falls back from 100-byte writes to 20-byte
+  write-with-response chunks if the MTU is small.
+
+Device API (not the browser js-paper API):
+
+~~~js
+var W = paper.width();
+var H = paper.height();
+paper.clear(0);
+paper.fillRect(0, 0, W, 38, 1);
+paper.text(4, 1, '每日一句', 1, 0);
+paper.text(4, 92, '知是行之', 1, 1);
+paper.commit();
+~~~
+
+Only paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width /
+height / commit are available. The font argument and 8-32 px sizes from the
+browser editor do not carry over: the device has one 24 px atlas and ignores the
+scale argument. The atlas is a 633-glyph subset (built-in quote corpus, AirPage
+UI strings and ASCII), so arbitrary Chinese can render as tofu until the atlas
+is regenerated. Failed eval/render/NVS leaves the previous source and image in
+place and returns error code 11 or 12.
 
 ## Browser support
 
@@ -204,7 +241,7 @@ the script itself is not uploaded to the T5 in this phase.
 
 - index.html — layout, orientation switch
 - style.css — responsive UI
-- app.js — built-in photo/daily rendering, 1-bit packing, CRC32, GATT client
+- app.js — built-in photo/daily rendering, 1-bit packing, CRC32, GATT image/script client
 - quotes.js — local quote corpus for 每日一句
 - js-paper.js — browser-side 1-bit `paper.*` API and all JS card samples
 - fonts/fusion-pixel-8px.woff2 — 8 px pixel font
