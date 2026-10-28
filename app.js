@@ -779,7 +779,7 @@ function renderControls() {
       '</select></div>';
     h += '<div class="row"><label>脚本</label><textarea id="jsCode" class="code" rows="15" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
     h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送</span></div>';
-    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。布局：paper.ui.column / row / text / spacer / divider + paper.render；绘制：clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit；文字：font / text / measure / wrapText / textBox。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
+    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。布局：paper.ui.column / row / text / spacer / divider + paper.render，或 Frame 风格 paper.flex.render({x, y, w, h, children})；绘制：clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit；文字：font / text / measure / wrapText / textBox。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
   }
   c.innerHTML = h;
 

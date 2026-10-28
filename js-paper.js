@@ -30,7 +30,8 @@
     kai:   { label: '楷体', stack: '"Kaiti SC","STKaiti","T5Serif","Noto Serif SC",serif' }
   };
   const FONT_ALIASES = {
-    system: 'sans', sans: 'sans', serif: 'serif', song: 'song',
+    system: 'sans', 'system-cn': 'sans', 'system-en': 'sans', cjk: 'sans',
+    sans: 'sans', serif: 'serif', song: 'song',
     pixel: 'pixel', mono: 'mono', kai: 'kai'
   };
   const FONTS = {};
@@ -578,6 +579,13 @@
         if (n.length >= 4) return { t: n[0], r: n[1], b: n[2], l: n[3], x: n[1] + n[3], y: n[0] + n[2] };
         return { t: n[0] || 0, r: n[0] || 0, b: n[0] || 0, l: n[0] || 0, x: (n[0] || 0) * 2, y: (n[0] || 0) * 2 };
       }
+      if (typeof value === 'object') {
+        const t = Number(value.top !== undefined ? value.top : value.t) || 0;
+        const r = Number(value.right !== undefined ? value.right : value.r) || 0;
+        const b = Number(value.bottom !== undefined ? value.bottom : value.b) || 0;
+        const l = Number(value.left !== undefined ? value.left : value.l) || 0;
+        return { t: t, r: r, b: b, l: l, x: l + r, y: t + b };
+      }
       const n = Number(value) || 0;
       return { t: n, r: n, b: n, l: n, x: n * 2, y: n * 2 };
     }
@@ -604,6 +612,7 @@
       if (v === 'flex-end' || v === 'right' || v === 'bottom') return 'end';
       if (v === 'space-between' || v === 'between') return 'between';
       if (v === 'space-around' || v === 'around') return 'around';
+      if (v === 'space-evenly' || v === 'evenly') return 'evenly';
       if (v === 'center' || v === 'middle') return 'center';
       return 'start';
     }
@@ -754,6 +763,11 @@
         const h = layoutNum(style.height);
         return { w: w === null ? 0 : Math.max(0, w), h: h === null ? 1 : Math.max(1, h), margin: margin };
       }
+      if (node.type === 'custom') {
+        const w = layoutNum(style.width);
+        const h = layoutNum(style.height);
+        return { w: w === null ? 0 : Math.max(0, w), h: h === null ? 0 : Math.max(0, h), margin: margin };
+      }
       if (node.type !== 'view') return { w: 0, h: 0, margin: margin };
 
       const pad = layoutPad(style.padding);
@@ -826,6 +840,9 @@
         else if (justify === 'around' && items.length > 0) {
           cursor += extra / (items.length * 2);
           spacing += extra / items.length;
+        } else if (justify === 'evenly' && items.length > 0) {
+          cursor += extra / (items.length + 1);
+          spacing += extra / (items.length + 1);
         }
       }
 
@@ -897,6 +914,9 @@
         if (style.fill === undefined && style.background === undefined) {
           fillRect(box.x, box.y, box.w, box.h, style.ink === undefined ? BLACK : style.ink);
         }
+      } else if (node.type === 'custom' && typeof node.render === 'function') {
+        try { node.render(box.x, box.y, box.w, box.h); }
+        catch (e) { if (global.console) console.warn('[paper] custom render error:', e); }
       }
       layoutBorder(box, style);
     }
@@ -932,6 +952,11 @@
       return { type: 'text', value: String(value === undefined || value === null ? '' : value), style: style || {}, children: [] };
     }
 
+    function uiCustom(render, style) {
+      if (typeof render !== 'function') return null;
+      return { type: 'custom', render: render, style: style || {}, children: [] };
+    }
+
     function uiSpacer(style) {
       if (typeof style === 'number') style = { grow: style };
       const s = { grow: 1 };
@@ -951,15 +976,170 @@
       row: function (style, children) { return uiView('row', style, children); },
       view: function (style, children) { return uiView('column', style, children); },
       text: uiText,
+      custom: uiCustom,
       spacer: uiSpacer,
       divider: uiDivider
     };
 
-    function renderLayout(root) {
+    function flexFont(name) {
+      const key = String(name === undefined || name === null ? '' : name).toLowerCase();
+      if (key === 'system' || key === 'system-en') return 'pixel';
+      if (key === 'mono' || key === 'kai' || key === 'serif' || key === 'pixel') return key;
+      return 'sans';
+    }
+
+    function flexStyle(c, isRow, allowGrow) {
+      const style = {};
+      if (c.width !== undefined && c.width !== null) style.width = c.width;
+      if (c.height !== undefined && c.height !== null) style.height = c.height;
+      const grow = Number(c.flex) || 0;
+      if (grow > 0) style.grow = grow;
+      if (c.alignSelf !== undefined && c.alignSelf !== null && c.alignSelf !== 'auto') style.alignSelf = c.alignSelf;
+      if (allowGrow) {
+        if (isRow ? (style.width === undefined) : (style.height === undefined)) {
+          if (grow <= 0) style.grow = 1;
+        }
+      }
+      return style;
+    }
+
+    function flexChild(c, isRow) {
+      if (!c) return null;
+      if (c.text !== undefined && c.text !== null) {
+        const fs = Math.max(1, Math.round(Number(c.fontSize) || 16));
+        const style = flexStyle(c, isRow, false);
+        style.size = fs;
+        style.font = flexFont(c.font);
+        style.ink = c.color !== undefined && c.color !== null ? c.color : BLACK;
+        if (style.height === undefined) style.height = fs + 4;
+        if (isRow && style.width === undefined && (Number(c.flex) || 0) <= 0) style.grow = 1;
+        style.lineHeight = fs;
+        style.valign = 'middle';
+        style.wrap = false;
+        style.padding = [0, 2];
+        if (c.textAlign !== undefined) style.align = c.textAlign;
+        else if (c.alignSelf === 'center') style.align = 'center';
+        return uiText(String(c.text), style);
+      }
+      if (c.rect) {
+        const r = c.rect;
+        const rw = c.width !== undefined ? c.width : r.w;
+        const rh = c.height !== undefined ? c.height : r.h;
+        const style = flexStyle({ width: rw, height: rh, flex: c.flex, alignSelf: c.alignSelf }, isRow, true);
+        return uiCustom(function (x, y, w, h) {
+          const bw = (r.w === undefined || r.w === null || r.w === 0) ? w : Math.min(w, r.w);
+          const bh = (r.h === undefined || r.h === null || r.h === 0) ? h : Math.min(h, r.h);
+          const rx = x + Math.floor((w - bw) / 2);
+          const ry = y + Math.floor((h - bh) / 2);
+          if (r.color !== undefined && r.color !== null) fillRect(rx, ry, bw, bh, r.color);
+          if (r.stroke !== undefined && r.stroke !== null) drawRect(rx, ry, bw, bh, r.stroke);
+        }, style);
+      }
+      if (c.circle) {
+        const r = c.circle;
+        const rad = Number(r.r) || 0;
+        const style = flexStyle(c, isRow, false);
+        if (rad > 0) {
+          if (style.height === undefined) style.height = rad * 2;
+          if (isRow && style.width === undefined) style.width = rad * 2;
+        } else if (style.width === undefined && style.height === undefined) {
+          style.grow = style.grow || 1;
+        }
+        return uiCustom(function (x, y, w, h) {
+          const rr = rad > 0 ? rad : Math.min(w, h) / 2;
+          fillCircle(x + w / 2, y + h / 2, rr, r.color === undefined ? BLACK : r.color);
+        }, style);
+      }
+      if (c.spacer !== undefined && c.spacer !== null) {
+        return uiSpacer({ basis: c.spacer, grow: 0, alignSelf: c.alignSelf || 'stretch' });
+      }
+      if (c.divider !== undefined) {
+        const ink = c.divider === null ? BLACK : c.divider;
+        const dstyle = isRow
+          ? { width: 1, alignSelf: 'stretch' }
+          : { height: 1, alignSelf: 'stretch' };
+        return uiCustom(function (x, y, w, h) {
+          fillRect(x, y + (h >> 1), w, 1, ink);
+        }, dstyle);
+      }
+      if (c.children) {
+        const dir = c.direction || 'column';
+        const childRow = dir === 'row';
+        const style = {};
+        if (c.width !== undefined && c.width !== null) style.width = c.width;
+        if (c.height !== undefined && c.height !== null) style.height = c.height;
+        if (c.flex !== undefined) style.grow = c.flex;
+        if ((childRow ? style.width === undefined : style.height === undefined) && (Number(c.flex) || 0) <= 0) style.grow = 1;
+        if (c.alignSelf !== undefined && c.alignSelf !== null && c.alignSelf !== 'auto') style.alignSelf = c.alignSelf;
+        if (c.padding !== undefined) style.padding = c.padding;
+        if (c.gap !== undefined) style.gap = c.gap;
+        if (c.justifyContent !== undefined) style.justify = c.justifyContent;
+        if (c.alignItems !== undefined) style.align = c.alignItems;
+        return uiView(dir, style, (c.children || []).map(function (child) { return flexChild(child, childRow); }));
+      }
+      if (typeof c.render === 'function') {
+        const style = flexStyle(c, isRow, true);
+        return uiCustom(c.render, style);
+      }
+      if (c.height !== undefined && c.height !== null) {
+        return uiSpacer({ basis: c.height, grow: 0, alignSelf: c.alignSelf || 'stretch' });
+      }
+      if (Number(c.flex) > 0) {
+        return uiSpacer({ basis: 0, grow: Number(c.flex), alignSelf: c.alignSelf || 'stretch' });
+      }
+      return null;
+    }
+
+    function flexRoot(cfg) {
+      const dir = cfg.direction || 'column';
+      const style = {};
+      if (cfg.padding !== undefined) style.padding = cfg.padding;
+      if (cfg.gap !== undefined) style.gap = cfg.gap;
+      if (cfg.justifyContent !== undefined) style.justify = cfg.justifyContent;
+      if (cfg.alignItems !== undefined) style.align = cfg.alignItems;
+      return uiView(dir, style, (cfg.children || []).map(function (child) {
+        return flexChild(child, dir === 'row');
+      }));
+    }
+
+    function flexRender(cfg) {
+      if (!cfg || !cfg.children) return null;
+      return renderLayout(flexRoot(cfg), {
+        x: cfg.x === undefined ? 0 : cfg.x,
+        y: cfg.y === undefined ? 0 : cfg.y,
+        w: cfg.w === undefined ? w : cfg.w,
+        h: cfg.h === undefined ? h : cfg.h
+      });
+    }
+
+    const flex = {
+      render: flexRender,
+      layout: flexRender,
+      column: function (cfg) {
+        if (!cfg) return null;
+        const c = {};
+        for (const k in cfg) c[k] = cfg[k];
+        c.direction = 'column';
+        return flexRender(c);
+      },
+      row: function (cfg) {
+        if (!cfg) return null;
+        const c = {};
+        for (const k in cfg) c[k] = cfg[k];
+        c.direction = 'row';
+        return flexRender(c);
+      }
+    };
+
+    function renderLayout(root, frame) {
       if (!root) return null;
       if (typeof root === 'string' || typeof root === 'number') root = uiText(root, {});
       if (Array.isArray(root)) root = uiView('column', {}, root);
-      const box = layoutArrange(root, 0, 0, w, h);
+      const x = frame && frame.x !== undefined ? Number(frame.x) || 0 : 0;
+      const y = frame && frame.y !== undefined ? Number(frame.y) || 0 : 0;
+      const fw = frame && frame.w !== undefined ? Number(frame.w) : w;
+      const fh = frame && frame.h !== undefined ? Number(frame.h) : h;
+      const box = layoutArrange(root, x, y, fw || w, fh || h);
       layoutPaint(box);
       api.lastLayout = box;
       return box;
@@ -1006,6 +1186,7 @@
       drawTextEx: drawTextEx,
       text: text,
       ui: ui,
+      flex: flex,
       render: renderLayout,
       measure: measure,
       measureText: measureText,
@@ -1396,6 +1577,32 @@ paper.render(
     ])
   ])
 );
+paper.commit();`
+    },
+    frame: {
+      name: 'Frame 风格 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+paper.clear(C.white);
+paper.flex.render({
+  x: 0, y: 0, w: W, h: H,
+  direction: 'column', gap: land ? 4 : 6, padding: land ? 6 : 10,
+  children: [
+    { direction: 'row', height: 14, justifyContent: 'between', alignItems: 'center', children: [
+      { text: 'AIRPAGE', fontSize: 10, height: 14, color: C.black, font: 'sans' },
+      { text: land ? 'LANDSCAPE' : 'PORTRAIT', fontSize: 8, height: 14, color: C.black, font: 'mono', textAlign: 'right' }
+    ] },
+    { divider: 0 },
+    { text: '少算坐标', fontSize: land ? 18 : 24, height: land ? 22 : 28, color: C.black, font: 'sans' },
+    { text: 'Frame 写法', fontSize: 10, height: 14, color: C.black, font: 'serif' },
+    { flex: 1 },
+    { direction: 'row', height: 14, justifyContent: 'between', alignItems: 'end', children: [
+      { text: '— AirPage', fontSize: 9, height: 14, color: C.black, font: 'song' },
+      { text: '122 × 250', fontSize: 8, height: 12, color: C.black, font: 'mono', textAlign: 'right' }
+    ] }
+  ]
+});
 paper.commit();`
     },
     hello: {

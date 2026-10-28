@@ -89,6 +89,7 @@ card is a JS sample:
 - 月相 — approximate illuminated moon and phase
 - 测试图 — grid, border, TOP/BOTTOM
 - 弹性布局 — column/row/gap/padding 排版示例
+- Frame 风格 — 用 Frame 兼容的 paper.flex 写同一类布局
 - 基础图形 / 当前时间 / 点阵图案 — API examples
 
 Selecting a use case loads its source into the editor. It is intentionally
@@ -159,6 +160,35 @@ paper.render(
 - Timers are no-ops. Each Run is one static frame.
 - Scripts run with `new Function` in the page, not in a sandbox. Treat the
   editor as a local developer tool.
+
+### Frame compatibility
+
+Frame already has a flex layer at `paper.flex`; the same config shape is
+accepted here, backed by the same layout engine as `paper.ui`:
+
+~~~js
+paper.flex.render({
+  x: 0, y: 0, w: paper.size.width, h: paper.size.height,
+  direction: "column", gap: 6, padding: 10,
+  children: [
+    { text: "AIRPAGE", fontSize: 10, height: 14, color: 0 },
+    { divider: 0 },
+    { text: "不再手算坐标", fontSize: 24, height: 32, color: 0 },
+    { flex: 1 },
+    { text: "122 × 250", fontSize: 8, height: 14, color: 0, textAlign: "right" }
+  ]
+});
+~~~
+
+Supported children: `text`, `rect`, `circle`, `divider`, `spacer`,
+`height` (fixed main-axis space), `flex` (grow), nested `children`, and a
+custom `render(x, y, w, h)` callback. `paper.flex.column(cfg)` and
+`paper.flex.row(cfg)` set the direction.
+
+Differences from `paper.ui`: the flex API keeps Frame's explicit root box
+and its single-line text behavior; `paper.ui` fills the canvas and
+auto-measures/wraps text. Both use the native AirPage font backend in the
+editor.
 
 The browser preview is exactly the 4,000-byte bitmap that is sent over BLE;
 the script itself is not uploaded to the T5 in this phase.
