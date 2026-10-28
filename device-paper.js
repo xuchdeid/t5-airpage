@@ -17,7 +17,6 @@
 
   var atlas = null;
   var loadPromise = null;
-  var img = null;
 
   function loadImage(src) {
     return new Promise(function (resolve, reject) {
@@ -63,7 +62,6 @@
           }
         }
       }
-      img = image;
       atlas = {
         cellW: meta.cellW,
         cellH: meta.cellH,
@@ -233,8 +231,17 @@
 
   Paper.prototype.getBits = function () { return this.bits; };
 
+  function maskCode(src) {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/[^\n\r]*/g, ' ')
+      .replace(/"(?:\\.|[^"\\])*"/g, '""')
+      .replace(/'(?:\\.|[^'\\])*'/g, "''");
+  }
+
   function sourceIssue(code) {
-    var src = String(code || '');
+    var raw = String(code || '');
+    var src = maskCode(raw);
     if (!src.trim()) return '脚本为空';
     if (/(^|[^A-Za-z0-9_])(const|let|class)([^A-Za-z0-9_]|$)/.test(src)) return '设备只接受 ES5：请用 var/function，不要用 const/let/class';
     if (/=>/.test(src)) return '设备只接受 ES5：不要用箭头函数 =>';
@@ -246,7 +253,7 @@
     if (/\b(window|document|navigator|localStorage|fetch|XMLHttpRequest|WebSocket)\b/.test(src)) {
       return '设备没有浏览器全局对象（window/document/fetch/localStorage 等）';
     }
-    if (src.indexOf("paper.text('") >= 0 || src.indexOf('paper.text("') >= 0) {
+    if (raw.indexOf("paper.text('") >= 0 || raw.indexOf('paper.text("') >= 0) {
       return '设备 paper.text 参数顺序是 (x, y, text, scale, black)';
     }
     var allowed = {
