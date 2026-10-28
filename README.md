@@ -21,7 +21,7 @@ xuchdeid/t5-airpage, branch main). Push this directory's files, including fonts/
 to that repository to update it.
 
 To use a different HTTPS static host, upload index.html, style.css, app.js,
-quotes.js, js-paper.js and the fonts/ directory. No server code, build step, or cloud API is needed. Then set
+quotes.js, device-paper.js and the fonts/ directory. No server code, build step, or cloud API is needed. Then set
 EDITOR_URL in src/main.cpp to that URL and rebuild; the device QR points at it.
 
 The QR uses version 4 / ECC low, so keep the URL short (roughly 78 bytes). A longer
@@ -32,6 +32,7 @@ URL needs a larger QR version and a smaller module scale in showQrScreen().
 - Portrait: 122×250, sent as-is.
 - Landscape: 250×122, laid out horizontally and rotated 90° clockwise into the
   portrait transport buffer. Rotate the device clockwise to view it.
+- JS 画布 is always portrait 122×250; its landscape button is disabled.
 
 ## Pixel font
 
@@ -48,15 +49,12 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
   target size. This includes 24 and 48; neither is a bitmap scaled up or down.
 - Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
   they fall back to the integer-scaled 12 px master.
-- JS Canvas fonts: `sans`, `serif` and `song` use the native glyph pipeline
-  in the editor; `pixel` is pinned to the Fusion 8/10/12 faces. Standalone
-  `js-paper.js` falls back to Noto Serif/Sans.
-- 24 px Song: web/fonts/song24.png + song24.json remains only as a fallback for
-  rare glyphs outside the Noto subset.
+- JS 画布: the firmware 24 px atlas (device24.png/json) only; the
+  device ignores the scale argument and has no font families.
 
-The built-in 每日一句 card auto-fits 10–24 px; the JS 文字海报 sample uses 22 px in
-portrait and 18 px in landscape. Do not switch the canvas back to system fonts:
-anti-aliased Chinese loses strokes at this resolution.
+The built-in 每日一句 card auto-fits 10–24 px. JS 画布 is fixed to the device
+24 px atlas, so its preview and the panel match exactly. Do not switch the
+canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
 
 WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
 fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Noto Serif SC is SIL OFL; see
@@ -75,161 +73,56 @@ request is made when it renders.
 - The card auto-fits a native size from 10 to 24 px; long quotes do not clip.
 - Portrait is 122×250 and landscape is 250×122, like the other templates.
 
-## JS 画布
+## JS 画布（设备模拟器）
 
-JS 画布 adds a code editor and a browser-side `paper.*` implementation for
-the 122×250 1-bit panel. The sidebar has only 照片, 每日一句 and JS 画布; every other
-card is a JS sample:
+The browser and the T5 now run the same API. JS 画布 loads the firmware's
+exported 24 px atlas and draws into a fixed 122×250 1-bit framebuffer with
+stride 16. The preview is packed exactly like the image transport; the same
+source can be sent as a bitmap, or pushed as source and run by the T5.
 
-- 文字海报 — quote, frame, byline
-- 年度进度 — year percentage and days left
-- 每周计划 — seven rows; two columns in landscape
-- 待办 — checkboxes; two columns in landscape
-- 倒计时 — days/hours to a target date
-- 月相 — approximate illuminated moon and phase
-- 测试图 — grid, border, TOP/BOTTOM
-- 弹性布局 — column/row/gap/padding 排版示例
-- Frame 风格 — 用 Frame 兼容的 paper.flex 写同一类布局
-- 基础图形 / 当前时间 / 点阵图案 — API examples
+The editor has one source and one Run button. The separate ES5 panel is gone.
+连接后 push uses control 0x10/0x12; 运行已存 uses 0x13.
 
-Selecting a use case loads its source into the editor. It is intentionally
-independent of QuickJS:
+API (nothing else exists on the device):
 
-~~~js
-var C = paper.colors;
-paper.clear(C.white);
-paper.text('Hello', 8, 22, { size: 20, font: 'sans' });
-paper.strokeRect(5, 5, 112, 240, C.black);
-paper.commit();
-~~~
+    paper.width()                 // 122
+    paper.height()                // 250
+    paper.clear(black)            // default 0 = white
+    paper.setPixel(x, y, black)   // default black 1; clipped
+    paper.fillRect(x, y, w, h, black)
+    paper.text(x, y, text, scale, black)
+    paper.textWidth(text, scale)
+    paper.lineHeight(scale)       // 36
+    paper.commit()                // returns FNV-1a hash
 
-- Coordinates follow the current orientation: 122×250 portrait, 250×122
-  landscape.
-- `paper.font(size, family)` returns a font descriptor; `setFont` makes it the
-  default. Families: `sans`, `serif`, `song`, `pixel` (8/10/12 only), `mono`,
-  `kai`. `paper.fonts` and `paper.fontSizes` expose the catalogue.
-- `paper.text(text, x, y, options)` supports `size`, `font`, `ink`, `align`,
-  `baseline`, `width` (wrap), `lineHeight`, `maxLines` and `ellipsis`.
-  `measure`, `wrapText`, `fitText` and `textBox` use the same options.
-- In the editor, `sans`/`serif`/`song` use the native AirPage glyph pipeline
-  (Fusion 8/10/12, WQY 14/16, Noto/Song 18+); standalone `js-paper.js` falls
-  back to Canvas/Noto. `mono`/`kai` always use Canvas.
-- `drawText`, `drawTextEx`, `measureText` and `drawTextBox` remain as
-  backward-compatible wrappers.
+paper.text puts the 24 px glyph cell at (x, y). Newlines advance by 36 and reset
+x to the text call's start. scale is accepted but ignored. Missing codepoints
+use the tofu glyph and advance 24 px.
 
-### Layout
+Samples use only this API and are self-contained ES5:
 
-`paper.ui` builds a small declarative tree; `paper.render` measures it and
-draws it. It is a flexbox subset, not a CSS engine:
+- 基础卡片; 文字海报; 年度进度; 每周计划; 待办; 月相; 测试图; 点阵图案.
 
-~~~js
-var ui = paper.ui;
-paper.clear(paper.colors.white);
-paper.render(
-  ui.column({ padding: 8, gap: 6 }, [
-    ui.row({ justify: "between", align: "center" }, [
-      ui.text("T5 AirPage", { size: 16, font: "sans", weight: 700 }),
-      ui.text("BLE", { size: 8, font: "mono", padding: [1, 3], border: 1 })
-    ]),
-    ui.divider(),
-    ui.text("不再手算坐标，文字会自动测量和换行。", {
-      size: 12, font: "serif", grow: 1
-    }),
-    ui.spacer(),
-    ui.text("122 × 250", { size: 8, font: "mono" })
-  ])
-);
-~~~
+The editor rejects const/let/class, arrow functions, template strings,
+async/await, generators, optional chaining, nullish coalescing, browser globals, old paper.*
+helpers and text-first paper.text. Script limit is 4096 UTF-8 bytes.
 
-- `ui.column` / `ui.row`: children are laid out on the main axis; `gap`
-  separates them, `justify` moves the group, `align` aligns the cross axis.
-- `ui.text`: auto width/height; `width`, `height`, `maxLines`, `ellipsis`,
-  `align` and `valign` constrain it. Text uses the same font options as
-  `paper.text`.
-- `ui.spacer`: grows into the free main-axis space. `ui.divider`: one-pixel rule.
-- `padding` / `margin`: number or `[vertical, horizontal]` / `[t, r, b, l]`.
-- `grow` / `shrink` / `basis`: flex sizing; `alignSelf` overrides the
-  container cross alignment.
-- `fill` (or `background`), `border` and `borderColor` paint the box.
-- `paper.render(tree)` fills the current 122×250 (or 250×122) canvas,
-  returns the layout tree, and stores it as `paper.lastLayout`. Call
-  `paper.clear` first; low-level drawing calls remain available for anything
-  the layout does not cover.
-- `paper.commit()` is a no-op in the simulator; the editor packs the buffer
-  after the script returns.
-- Timers are no-ops. Each Run is one static frame.
-- Scripts run with `new Function` in the page, not in a sandbox. Treat the
-  editor as a local developer tool.
+The atlas is a 633-glyph subset: the built-in quote corpus, AirPage UI strings
+and ASCII. Other Chinese renders as tofu until the firmware atlas is expanded.
+JS 画布 is always portrait; the landscape button is disabled.
 
-### Frame compatibility
+Examples:
 
-Frame already has a flex layer at `paper.flex`; the same config shape is
-accepted here, backed by the same layout engine as `paper.ui`:
+    var W = paper.width(), H = paper.height();
+    paper.clear(0);
+    paper.fillRect(0, 0, W, 38, 1);
+    paper.text(4, 1, "每日一句", 1, 0);
+    paper.text(4, 92, "知是行之", 1, 1);
+    paper.commit();
 
-~~~js
-paper.flex.render({
-  x: 0, y: 0, w: paper.size.width, h: paper.size.height,
-  direction: "column", gap: 6, padding: 10,
-  children: [
-    { text: "AIRPAGE", fontSize: 10, height: 14, color: 0 },
-    { divider: 0 },
-    { text: "不再手算坐标", fontSize: 24, height: 32, color: 0 },
-    { flex: 1 },
-    { text: "122 × 250", fontSize: 8, height: 14, color: 0, textAlign: "right" }
-  ]
-});
-~~~
-
-Supported children: `text`, `rect`, `circle`, `divider`, `spacer`,
-`height` (fixed main-axis space), `flex` (grow), nested `children`, and a
-custom `render(x, y, w, h)` callback. `paper.flex.column(cfg)` and
-`paper.flex.row(cfg)` set the direction.
-
-Differences from `paper.ui`: the flex API keeps Frame's explicit root box
-and its single-line text behavior; `paper.ui` fills the canvas and
-auto-measures/wraps text. Both use the native AirPage font backend in the
-editor.
-
-The browser preview is exactly the 4,000-byte bitmap sent by the Send button.
-
-## 推送到设备（ES5 脚本）
-
-The JS 画布 controls include a separate **推送到设备（ES5 脚本）** panel. This is
-not the browser JS sandbox: it uploads source text to the T5, where the firmware
-executes it in MicroQuickJS, renders the framebuffer, refreshes the panel, and
-stores the source plus image in NVS.
-
-- Limit: **4096 bytes UTF-8**; the byte counter turns red above the limit.
-- Buttons: 推送脚本 sends a new source; 运行已存 runs the source already in NVS.
-- A .js/.txt file can be loaded into the textarea.
-- The push button is disabled when the connected firmware reports no script bit
-  in the info characteristic (flags bit 1).
-- Source is checked for common non-ES5 constructs (const/let/class, arrow
-  functions, template strings) and browser-only paper APIs before sending.
-- Transport: control 0x10 + total u32 + crc32 u32, framed data writes, then
-  control 0x12. The client falls back from 100-byte writes to 20-byte
-  write-with-response chunks if the MTU is small.
-
-Device API (not the browser js-paper API):
-
-~~~js
-var W = paper.width();
-var H = paper.height();
-paper.clear(0);
-paper.fillRect(0, 0, W, 38, 1);
-paper.text(4, 1, '每日一句', 1, 0);
-paper.text(4, 92, '知是行之', 1, 1);
-paper.commit();
-~~~
-
-Only paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width /
-height / commit are available. The font argument and 8-32 px sizes from the
-browser editor do not carry over: the device has one 24 px atlas and ignores the
-scale argument. The atlas is a 633-glyph subset (built-in quote corpus, AirPage
-UI strings and ASCII), so arbitrary Chinese can render as tofu until the atlas
-is regenerated. Failed eval/render/NVS leaves the previous source and image in
-place and returns error code 11 or 12.
-
+The exact same source can be Run in the browser, sent as a 4,000-byte bitmap,
+or pushed to the T5. A successful push leaves the previous source/image intact
+on failure (error 11 or 12).
 ## Browser support
 
 - Android Chrome / Edge: yes
@@ -243,7 +136,8 @@ place and returns error code 11 or 12.
 - style.css — responsive UI
 - app.js — built-in photo/daily rendering, 1-bit packing, CRC32, GATT image/script client
 - quotes.js — local quote corpus for 每日一句
-- js-paper.js — browser-side 1-bit `paper.*` API and all JS card samples
+- device-paper.js — device API simulator and all JS samples
+- fonts/device24.png + device24.json — exported firmware 24 px atlas
 - fonts/fusion-pixel-8px.woff2 — 8 px pixel font
 - fonts/fusion-pixel-10px.woff2 — 10 px pixel font
 - fonts/fusion-pixel-12px.woff2 — 12 px pixel font

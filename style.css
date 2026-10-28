@@ -44,6 +44,7 @@ h2{font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 .viewbar button{border:0;background:transparent;color:var(--muted);font-size:12px;
   padding:6px 10px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .viewbar button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px #18181b18;font-weight:600}
+.viewbar button:disabled{opacity:.42;cursor:not-allowed;text-decoration:line-through}
 .paperwrap{padding:15px;background:#e4e4e7;border-radius:16px;box-shadow:inset 0 0 0 1px #d4d4d8;
   width:min(100%,300px);display:flex;justify-content:center}
 .paperwrap.landscape{width:min(100%,530px)}
@@ -67,18 +68,16 @@ h2{font:600 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   min-height:286px;white-space:pre;tab-size:2;background:#fafafa;color:#18181b}
 .controls .js-run-row{flex-direction:row;align-items:center;gap:10px}
 .controls .js-run-row .btn{min-width:98px}
+.controls .js-run-row .bytecount{margin-left:auto}
 .controls .js-run-row .tiny{margin:0;flex:1}
 .controls .daily-actions{flex-direction:row;flex-wrap:wrap;gap:6px}
 .controls .daily-actions .btn{flex:1;min-width:72px;padding:8px 6px;font-size:12px}
 .compat{margin:14px 0 0;font-size:11px;line-height:1.5;color:var(--muted)}
 .compat.bad{color:var(--bad)}
-.controls .device-push{margin:14px 0 12px;padding:10px 0 0;border-top:1px solid var(--line)}
-.controls .device-push summary{cursor:pointer;font-size:12px;font-weight:600;margin:0 0 9px;color:var(--ink)}
-.controls .device-push .tiny{margin:-2px 0 10px}
-.controls textarea.device-code{min-height:176px}
 .controls .device-file{flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}
 .controls .device-file input{flex:1;min-width:0}
-.controls .device-actions{flex-direction:row;gap:8px}
+.controls .device-file .tiny{margin:0;flex:1}
+.controls .device-actions{flex-direction:row;gap:8px;flex-wrap:wrap}
 .controls .device-actions .btn{flex:1;min-width:0;padding:8px 6px;font-size:12px}
 .controls .bytecount{font-size:11px;color:var(--muted);white-space:nowrap}
 .controls .bytecount.bad{color:var(--bad);font-weight:600}

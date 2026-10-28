@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#18181b">
 <title>AirPage BLE · T5</title>
-<link rel="stylesheet" href="style.css?v=45">
+<link rel="stylesheet" href="style.css?v=47">
 </head>
 <body>
 <header class="top">
@@ -25,7 +25,7 @@
   <aside class="templates">
     <h2>场景</h2>
     <div id="tplList"></div>
-    <p class="hint">122 × 250 / 250 × 122 · 1-bit<br>照片与每日一句内置；其他卡片全部由 JS 画布生成 · 内容在本地渲染，图片或 ES5 脚本通过蓝牙发送。</p>
+    <p class="hint">122 × 250 设备帧缓冲 · 1-bit<br>照片与每日一句支持横竖屏；JS 画布固定竖屏，浏览器按设备同一 API/字库模拟，同一份源码可发位图或推送到 T5。</p>
   </aside>
 
   <section class="stage">
@@ -58,8 +58,8 @@
   <span id="secure"></span>
 </footer>
 
-<script src="quotes.js?v=45"></script>
-<script src="js-paper.js?v=45"></script>
-<script src="app.js?v=45"></script>
+<script src="quotes.js?v=47"></script>
+<script src="device-paper.js?v=47"></script>
+<script src="app.js?v=47"></script>
 </body>
 </html>

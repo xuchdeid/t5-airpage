@@ -44,10 +44,11 @@ function setDot(state) {
 /* ---------- state ---------- */
 const jsSavedCode = (() => {
   try {
-    const saved = localStorage.getItem('t5.jspaper.code');
-    if (saved) return saved;
+    let saved = localStorage.getItem('t5.device.js');
+    if (saved === null) saved = localStorage.getItem('t5.device.code');
+    if (saved !== null) return saved;
   } catch (e) {}
-  return (window.T5Paper && T5Paper.samples.hello.code) || '';
+  return (window.T5Paper && T5Paper.samples.hello.code) || DEVICE_SCRIPT_DEFAULT;
 })();
 const jsSavedExample = (() => {
   const samples = (window.T5Paper && T5Paper.samples) || {};
@@ -56,14 +57,6 @@ const jsSavedExample = (() => {
   }
   return 'custom';
 })();
-const deviceSavedCode = (() => {
-  try {
-    const saved = localStorage.getItem('t5.device.code');
-    if (saved !== null) return saved;
-  } catch (e) {}
-  return DEVICE_SCRIPT_DEFAULT;
-})();
-
 const state = {
   template: 'daily',
   orientation: 'portrait',
@@ -77,7 +70,6 @@ const state = {
   dailyOffset: 0,
   jsExample: jsSavedExample,
   jsCode: jsSavedCode,
-  deviceCode: deviceSavedCode
 };
 
 /* ---------- canvases ---------- */
@@ -406,155 +398,122 @@ function nativeFontMode(family) {
   return 'serif';
 }
 
-function nativeTypeMetrics(value, size, family) {
-  const prev = activeFont;
-  activeFont = nativeFontMode(family);
-  try {
-    const str = String(value === undefined || value === null ? '' : value);
-    let width = 0, height = 0;
-    const asc = ascentFor(size);
-    for (const ch of Array.from(str)) {
-      const g = glyph(ch, size);
-      width += g.w;
-      if (g.size > height) height = g.size;
-    }
-    if (!height) height = Math.max(1, Math.round(size * 1.25));
-    return {
-      width: Math.ceil(width), height: Math.ceil(height),
-      ascender: asc, descender: Math.max(0, Math.ceil(height - asc)), baseline: asc
-    };
-  } finally {
-    activeFont = prev;
-  }
-}
-
-function nativeTypeDraw(ctx, value, x, top, size, family) {
-  const prev = activeFont;
-  activeFont = nativeFontMode(family);
-  try {
-    const asc = ascentFor(size);
-    text(ctx, value, x, Math.round(top) + asc, size, 'left');
-  } finally {
-    activeFont = prev;
-  }
-}
-
-function installTypeBackend() {
-  if (!window.T5Paper || !T5Paper.setTypeBackend) return;
-  T5Paper.setTypeBackend({
-    supports: family => family !== 'mono' && family !== 'kai',
-    measure: nativeTypeMetrics,
-    draw: nativeTypeDraw
-  });
-}
-
 /* ---------- drawing helpers ---------- */
 function fillWhite(ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
 function hline(ctx, x1, x2, y) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y + .5); ctx.lineTo(x2, y + .5); ctx.stroke(); }
 
 /* ---------- JS Lab ---------- */
-let jsCache = { code: null, w: 0, h: 0, bits: null, error: null };
+let jsCache = { code: null, bits: null, packed: null, hash: 0, error: null };
 
 function saveJSCode() {
-  try { localStorage.setItem('t5.jspaper.code', state.jsCode); } catch (e) {}
+  try { localStorage.setItem('t5.device.js', state.jsCode); } catch (e) {}
+}
+
+function errorFrame(msg) {
+  const paper = T5Paper.create();
+  paper.clear(0);
+  paper.text(4, 4, "ERROR", 1, 1);
+  let y = 42;
+  const text = String(msg || "unknown").replace(/\s+/g, " ");
+  let line = "";
+  let count = 0;
+  for (const ch of text) {
+    const test = line + ch;
+    if (line && paper.textWidth(test, 1) > 114) {
+      paper.text(4, y, line, 1, 1);
+      y += paper.lineHeight(1);
+      line = ch;
+      if (++count >= 4) break;
+    } else {
+      line = test;
+    }
+  }
+  if (line && y < 230) paper.text(4, y, line, 1, 1);
+  paper.commit();
+  return paper;
 }
 
 function executeJS() {
-  if (!window.T5Paper) {
-    jsCache = { code: state.jsCode, w: W, h: H, bits: new Uint8Array(W * H), error: new Error('paper API 未加载') };
+  if (!window.T5Paper || !T5Paper.ready()) {
+    jsCache = { code: state.jsCode, bits: new Uint8Array(W * H), packed: null, hash: 0,
+      error: new Error("设备字库/模拟器未加载") };
     return jsCache;
   }
-  const paper = T5Paper.create(W, H);
+  const issue = T5Paper.sourceIssue(state.jsCode);
+  let paper = null;
   let error = null;
-  try {
-    const fn = new Function('paper', state.jsCode + '\n//# sourceURL=t5-js-app.js');
-    fn(paper);
-  } catch (e) {
-    error = e;
-    // Keep an error frame useful for the preview instead of a blank panel.
+  if (issue) {
+    error = new Error(issue);
+  } else {
+    paper = T5Paper.create();
     try {
-      paper.clear(T5Paper.WHITE);
-      paper.drawTextEx(7, 8, 'JS 错误', T5Paper.BLACK, 14, 'sans');
-      const msg = String(e && (e.message || e)).slice(0, 90);
-      let y = 30;
-      for (const line of msg.match(/.{1,16}/g) || []) {
-        paper.drawTextEx(7, y, line, T5Paper.BLACK, 9, 'mono');
-        y += 11;
-        if (y > H - 10) break;
-      }
-      paper.drawTextEx(7, H - 16, '修好后点 Run', T5Paper.BLACK, 9, 'sans');
-    } catch (e2) {}
+      const print = function () {
+        const s = Array.prototype.map.call(arguments, String).join(" ");
+        console.log(s);
+      };
+      const noop = function () {};
+      const fn = new Function("paper", "print", "gc", "load", "setTimeout", "clearTimeout",
+        state.jsCode + "\n//# sourceURL=t5-device-script.js");
+      fn(paper, print, noop, noop, noop, noop);
+      paper.commit();
+    } catch (e) {
+      error = e;
+    }
   }
-  jsCache = { code: state.jsCode, w: W, h: H, bits: paper.getBits(), error,
-    serifReady, sansReady };
+  if (error) {
+    try { paper = errorFrame(error.message || error); } catch (e2) {}
+  }
+  if (!paper) paper = T5Paper.create();
+  jsCache = {
+    code: state.jsCode,
+    bits: paper.getBits(),
+    packed: paper.getPacked(),
+    hash: paper.hash || 0,
+    error
+  };
   return jsCache;
 }
 
 function drawJS(ctx) {
   fillWhite(ctx);
-  if (!jsCache.bits || jsCache.code !== state.jsCode || jsCache.w !== W || jsCache.h !== H ||
-      jsCache.serifReady !== serifReady || jsCache.sansReady !== sansReady) {
-    executeJS();
-  }
-  const bits = jsCache.bits || new Uint8Array(W * H);
+  if (!jsCache.bits || jsCache.code !== state.jsCode || jsCache.bits.length !== W * H) executeJS();
+  const b = jsCache.bits || new Uint8Array(W * H);
   const id = ctx.createImageData(W, H);
-  for (let i = 0; i < bits.length; i++) {
-    const v = bits[i] ? 0 : 255;
+  for (let i = 0; i < b.length; i++) {
+    const v = b[i] ? 0 : 255;
     id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v;
     id.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(id, 0, 0);
-  if (jsCache.error) {
-    ctx.save();
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(6, H - 22, W - 12, 16);
-    ctx.fillStyle = '#000';
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText('ERROR: ' + String(jsCache.error.message || jsCache.error).slice(0, 40), 8, H - 19);
-    ctx.restore();
-  }
 }
 
 function runJS() {
   executeJS();
   render();
   if (jsCache.error) {
-    setStatus('JS 错误：' + String(jsCache.error.message || jsCache.error), 'bad');
+    setStatus("JS 错误：" + String(jsCache.error.message || jsCache.error), "bad");
   } else {
-    setStatus('JS 已运行；预览就是将要发送的 1-bit 位图', 'ok');
+    const h = jsCache.hash ? " · #" + (jsCache.hash >>> 0).toString(16) : "";
+    const over = deviceByteLength() > SCRIPT_MAX;
+    setStatus("模拟运行完成 · 122×250 · 与设备同一 API/字库" + h +
+      (over ? " · 超过 4096 B，只能发位图" : ""), over ? "bad" : "ok");
   }
 }
 
 /* ---------- device ES5 source ---------- */
 function deviceByteLength() {
-  return new TextEncoder().encode(state.deviceCode).length;
-}
-function saveDeviceCode() {
-  try { localStorage.setItem('t5.device.code', state.deviceCode); } catch (e) {}
+  return new TextEncoder().encode(state.jsCode).length;
 }
 function updateDeviceMeta() {
-  const el = $('#scriptBytes');
+  const el = $('#jsBytes');
   if (!el) return;
   const n = deviceByteLength();
   el.textContent = n + ' / ' + SCRIPT_MAX + ' B';
   el.classList.toggle('bad', n === 0 || n > SCRIPT_MAX);
 }
 function deviceSourceIssue() {
-  const src = state.deviceCode;
-  if (!src.trim()) return '脚本为空';
-  if (/(^|[^A-Za-z0-9_])(const|let|class)([^A-Za-z0-9_]|$)/.test(src)) return '包含 const/let/class，设备只接受 ES5 var/function';
-  if (/=>/.test(src)) return '包含箭头函数 =>，设备只接受 ES5 function';
-  if (src.indexOf(String.fromCharCode(96)) >= 0) return '包含模板字符串，设备不支持';
-  if (src.indexOf("paper.text('") >= 0 || src.indexOf('paper.text("') >= 0) return '设备 paper.text 参数顺序是 (x, y, text, scale, black)';
-  const allowed = {clear:1, setPixel:1, fillRect:1, text:1, textWidth:1, lineHeight:1, width:1, height:1, commit:1};
-  const re = /paper[.]([A-Za-z_$][A-Za-z0-9_$]*)/g;
-  var m;
-  while ((m = re.exec(src))) {
-    if (!allowed[m[1]]) return '使用了设备不支持的 paper.' + m[1];
-  }
-  return '';
+  if (window.T5Paper && T5Paper.sourceIssue) return T5Paper.sourceIssue(state.jsCode);
+  return '模拟器未加载';
 }
 
 
@@ -657,7 +616,7 @@ function refreshDailyMeta() {
 const templates = {
   photo: { name: '照片', sub: 'Photo', icon: '▧', draw: drawPhoto },
   daily: { name: '每日一句', sub: 'Daily', icon: '❞', draw: drawDaily },
-  js:    { name: 'JS 画布', sub: 'Cards / Script', icon: '⌨', draw: drawJS }
+  js:    { name: 'JS 画布', sub: 'Device / Simulator', icon: '⌨', draw: drawJS }
 };
 
 function drawPhoto(ctx) {
@@ -772,6 +731,10 @@ function drawPreview() {
 
 /* ---------- orientation ---------- */
 function setOrientation(o) {
+  if (state.template === 'js') {
+    if (o === 'landscape') setStatus('设备脚本固定 122×250 竖屏，与设备 API 一致', 'bad');
+    o = 'portrait';
+  }
   state.orientation = o === 'landscape' ? 'landscape' : 'portrait';
   W = state.orientation === 'landscape' ? PANEL_H : PANEL_W;
   H = state.orientation === 'landscape' ? PANEL_W : PANEL_H;
@@ -781,7 +744,11 @@ function setOrientation(o) {
   preview.style.width = (W * 2) + 'px';
   preview.style.aspectRatio = W + ' / ' + H;
   document.querySelector('.paperwrap').classList.toggle('landscape', state.orientation === 'landscape');
-  $$('#orient button').forEach(b => b.classList.toggle('active', b.dataset.orient === state.orientation));
+  $$('#orient button').forEach(b => {
+    b.classList.toggle('active', b.dataset.orient === state.orientation);
+    b.disabled = state.template === 'js' && b.dataset.orient === 'landscape';
+    b.title = state.template === 'js' && b.dataset.orient === 'landscape' ? '设备脚本固定竖屏' : '';
+  });
   render();
 }
 
@@ -793,6 +760,7 @@ function tplList() {
   ).join('');
   $$('#tplList .tpl').forEach(b => b.onclick = () => {
     state.template = b.dataset.tpl;
+    setOrientation(state.orientation);
     renderControls();
     syncTplButtons();
     if (state.template === 'js') {
@@ -828,22 +796,16 @@ function renderControls() {
     h += '<p class="tiny">本地语料，共 ' + DAILY_QUOTES.length + ' 句；按日期确定性选择，点按钮切换。不会联网，也不会上传文字。</p>';
   } else if (state.template === 'js') {
     const samples = (window.T5Paper && T5Paper.samples) || {};
-    h += '<p class="tiny">照片和每日一句是内置模板；其余用例都在这里，用 JS 画布实现。选一个用例，改代码，点 Run。</p>';
+    h += '<p class="tiny">这里就是 T5 的设备 JS 模拟器：浏览器按设备同一套 API、同一份 24px 字库、同一个 122×250 1-bit 帧缓冲运行。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
     h += '<div class="row"><label>用例</label><select id="jsExample">' +
       Object.entries(samples).map(([k, s]) => '<option value="' + k + '">' + esc(s.name) + '</option>').join('') +
       '<option value="custom">自定义</option>' +
       '</select></div>';
-    h += '<div class="row"><label>脚本</label><textarea id="jsCode" class="code" rows="15" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
-    h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送位图</span></div>';
-    h += '<details class="device-push" open>';
-    h += '<summary>推送到设备（ES5 脚本）</summary>';
-    h += '<p class="tiny">这里发送的是另一套设备脚本，不是上方浏览器代码。设备只支持 ES5（var/function，不支持 const/let/=>/模板字符串），API 只有 paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。24 px 字库目前覆盖内置语料 + ASCII，超出范围会显示豆腐块。</p>';
-    h += '<div class="row"><label>设备脚本（UTF-8，≤' + SCRIPT_MAX + ' B）</label><textarea id="deviceCode" class="code device-code" rows="10" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.deviceCode) + '</textarea></div>';
-    h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span id="scriptBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
+    h += '<div class="row"><label>设备脚本（ES5，≤' + SCRIPT_MAX + ' B）</label><textarea id="jsCode" class="code" rows="17" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
+    h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span id="jsBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
+    h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span class="tiny">载入 .js 覆盖当前脚本</span></div>';
     h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button></div>';
-    h += '<p class="tiny">连接 T5 后按钮可用。推送成功后设备会执行、刷新并保存到 NVS；失败会保留上一版。设备脚本最长 4096 B；运行已存不会重新发送源码。</p>';
-    h += '</details>';
-    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。布局：paper.ui.column / row / text / spacer / divider + paper.render，或 Frame 风格 paper.flex.render({x, y, w, h, children})；绘制：clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit；文字：font / text / measure / wrapText / textBox。上方脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
+    h += '<p class="tiny">API：paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。只有一种 24px 字库，scale 参数保留但被忽略；脚本固定竖屏 122×250。连接 T5 后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。脚本在主线程执行，死循环会卡住页面。</p>';
   }
   c.innerHTML = h;
 
@@ -888,6 +850,8 @@ function renderControls() {
       const sel = $('#jsExample');
       if (sel) sel.value = 'custom';
       saveJSCode();
+      updateDeviceMeta();
+      syncBtButtons();
     });
   }
   const je = $('#jsExample');
@@ -907,15 +871,6 @@ function renderControls() {
   const jr = $('#jsRun');
   if (jr) jr.onclick = runJS;
 
-  const dc = $('#deviceCode');
-  if (dc) {
-    dc.addEventListener('input', () => {
-      state.deviceCode = dc.value;
-      saveDeviceCode();
-      updateDeviceMeta();
-      syncBtButtons();
-    });
-  }
   const sf = $('#scriptFile');
   if (sf) {
     sf.onchange = async () => {
@@ -925,12 +880,14 @@ function renderControls() {
       try {
         let text = await file.text();
         if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-        state.deviceCode = text;
-        if (dc) dc.value = text;
-        saveDeviceCode();
+        state.jsCode = text;
+        state.jsExample = 'custom';
+        if (jc) jc.value = text;
+        saveJSCode();
         updateDeviceMeta();
         syncBtButtons();
-        setStatus('已载入 ' + file.name + '；检查后点“推送脚本”');
+        runJS();
+        setStatus('已载入 ' + file.name + '，已用模拟器运行', 'ok');
       } catch (e) {
         setStatus('读取脚本失败：' + (e.message || e), 'bad');
       }
@@ -943,7 +900,6 @@ function renderControls() {
   if (sr) sr.onclick = runStoredScript;
   updateDeviceMeta();
   syncBtButtons();
-
   const d = $('#dither'); if (d) { d.value = state.dither; d.onchange = () => { state.dither = d.value; render(); }; }
   const f = $('#photoFile'); if (f) f.onchange = () => {
     const file = f.files && f.files[0]; if (!file) return;
@@ -1054,7 +1010,7 @@ function onNotify(e) {
     setStatus(transferKind === 'script' ? '✓ 脚本已推送并显示在 T5 上' :
       transferKind === 'run' ? '✓ 已运行设备中保存的脚本' : '✓ 已显示在 T5 上', 'ok');
     setDot('on'); setProgress(100);
-    if (doneWaiter) { const r = doneWaiter; doneWaiter = null; r.resolve(); }
+    if (doneWaiter) { const r = doneWaiter; doneWaiter = null; r.resolve(val); }
   } else {
     const names = {
       3:'尺寸/格式错误', 4:'CRC 校验失败', 5:'数据偏移错误', 6:'已取消',
@@ -1083,7 +1039,7 @@ function waitDone(ms = 30000) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => { doneWaiter = null; reject(new Error('等待设备超时')); }, ms);
     doneWaiter = {
-      resolve: () => { clearTimeout(t); resolve(); },
+      resolve: (value) => { clearTimeout(t); resolve(value); },
       reject: (e) => { clearTimeout(t); reject(e); }
     };
   });
@@ -1169,10 +1125,16 @@ async function pushScript() {
   if (btBusy) return;
   const issue = deviceSourceIssue();
   if (issue) { setStatus('设备脚本检查：' + issue, 'bad'); return; }
-  const source = new TextEncoder().encode(state.deviceCode);
+  const source = new TextEncoder().encode(state.jsCode);
   if (source.length === 0) { setStatus('设备脚本为空', 'bad'); return; }
   if (source.length > SCRIPT_MAX) {
     setStatus('设备脚本 ' + source.length + ' B，超过 ' + SCRIPT_MAX + ' B 上限', 'bad');
+    return;
+  }
+  executeJS();
+  render();
+  if (jsCache.error) {
+    setStatus('脚本在模拟器中失败，未推送：' + String(jsCache.error.message || jsCache.error), 'bad');
     return;
   }
 
@@ -1219,7 +1181,14 @@ async function pushScript() {
     const done = waitDone(30000);
     await writeCtrl(new Uint8Array([CMD_COMMIT_SCRIPT]));
     setStatus('脚本已提交，设备执行并刷新屏幕…');
-    await done;
+    const deviceHash = await done;
+    const expected = jsCache.hash >>> 0;
+    if (deviceHash && expected && deviceHash !== expected) {
+      setStatus('设备已执行，但位图哈希不一致：设备 #' + (deviceHash >>> 0).toString(16) +
+        ' / 浏览器 #' + expected.toString(16), 'bad');
+    } else {
+      setStatus('脚本已运行并保存；预览与设备同源' + (expected ? ' · #' + expected.toString(16) : ''), 'ok');
+    }
   } catch (e) {
     console.warn(e);
     setStatus('脚本推送失败：' + (e.message || e), 'bad');
@@ -1241,6 +1210,7 @@ async function runStoredScript() {
     await writeCtrl(new Uint8Array([CMD_RUN_SCRIPT]));
     setStatus('已请求运行设备中保存的脚本…');
     await done;
+    setStatus('设备已运行已存脚本；预览只在推送过同一份源码时一致', 'ok');
   } catch (e) {
     console.warn(e);
     setStatus('运行已存脚本失败：' + (e.message || e), 'bad');
@@ -1302,7 +1272,12 @@ async function boot() {
       console.warn('Noto Serif detail face unavailable; 18-32 will fall back to 24px Song', e);
       serifReady = false;
     }
-    installTypeBackend();
+    try {
+      await T5Paper.load();
+    } catch (e) {
+      console.warn('Device font atlas unavailable', e);
+      setStatus('设备字库加载失败，JS 模拟器不可用：' + (e.message || e), 'bad');
+    }
     jsCache.code = null;
     setOrientation('portrait');
     renderControls();
@@ -1319,6 +1294,7 @@ async function boot() {
     getBits: () => bits,
     setOrientation,
     deviceByteLength, deviceSourceIssue, updateDeviceMeta,
+    executeJS, jsCache: () => jsCache,
     pushScript, runStoredScript, syncBtButtons
   };
 }
