@@ -547,6 +547,7 @@ function deviceSourceIssue() {
   if (/(^|[^A-Za-z0-9_])(const|let|class)([^A-Za-z0-9_]|$)/.test(src)) return '包含 const/let/class，设备只接受 ES5 var/function';
   if (/=>/.test(src)) return '包含箭头函数 =>，设备只接受 ES5 function';
   if (src.indexOf(String.fromCharCode(96)) >= 0) return '包含模板字符串，设备不支持';
+  if (src.indexOf("paper.text('") >= 0 || src.indexOf('paper.text("') >= 0) return '设备 paper.text 参数顺序是 (x, y, text, scale, black)';
   const allowed = {clear:1, setPixel:1, fillRect:1, text:1, textWidth:1, lineHeight:1, width:1, height:1, commit:1};
   const re = /paper[.]([A-Za-z_$][A-Za-z0-9_$]*)/g;
   var m;
