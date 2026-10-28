@@ -48,9 +48,9 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
   target size. This includes 24 and 48; neither is a bitmap scaled up or down.
 - Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
   they fall back to the integer-scaled 12 px master.
-- 24 px and above font choice: a JS sample can ask `drawTextEx` for Noto Serif
-  SC, Noto Sans SC, or the ISCAS 24 px bitmap (native at 24, scaled at
-  26/28/30/32).
+- JS Canvas fonts: `sans`, `serif` and `song` use the native glyph pipeline
+  in the editor; `pixel` is pinned to the Fusion 8/10/12 faces. Standalone
+  `js-paper.js` falls back to Noto Serif/Sans.
 - 24 px Song: web/fonts/song24.png + song24.json remains only as a fallback for
   rare glyphs outside the Noto subset.
 
@@ -96,18 +96,24 @@ independent of QuickJS:
 ~~~js
 var C = paper.colors;
 paper.clear(C.white);
-paper.drawTextEx(8, 22, 'Hello', C.black, 20, 'sans');
+paper.text('Hello', 8, 22, { size: 20, font: 'sans' });
 paper.strokeRect(5, 5, 112, 240, C.black);
 paper.commit();
 ~~~
 
 - Coordinates follow the current orientation: 122×250 portrait, 250×122
   landscape.
-- `paper.drawText` uses a 12 px base multiplied by `scale`; `drawTextEx`
-  takes an explicit pixel size and font name (`sans`, `serif`, `song`, `kai`,
-  `mono`).
-- Text is drawn through Canvas, thresholded to 1-bit, and is not the same
-  rasteriser as the device bitmap fonts.
+- `paper.font(size, family)` returns a font descriptor; `setFont` makes it the
+  default. Families: `sans`, `serif`, `song`, `pixel` (8/10/12 only), `mono`,
+  `kai`. `paper.fonts` and `paper.fontSizes` expose the catalogue.
+- `paper.text(text, x, y, options)` supports `size`, `font`, `ink`, `align`,
+  `baseline`, `width` (wrap), `lineHeight`, `maxLines` and `ellipsis`.
+  `measure`, `wrapText`, `fitText` and `textBox` use the same options.
+- In the editor, `sans`/`serif`/`song` use the native AirPage glyph pipeline
+  (Fusion 8/10/12, WQY 14/16, Noto/Song 18+); standalone `js-paper.js` falls
+  back to Canvas/Noto. `mono`/`kai` always use Canvas.
+- `drawText`, `drawTextEx`, `measureText` and `drawTextBox` remain as
+  backward-compatible wrappers.
 - `paper.commit()` is a no-op in the simulator; the editor packs the buffer
   after the script returns.
 - Timers are no-ops. Each Run is one static frame.

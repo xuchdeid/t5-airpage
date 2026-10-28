@@ -16,18 +16,101 @@
     yellow: 2, red: 3, blue: 5, green: 6
   };
 
-  const FONT_FAMILIES = {
-    system: '"T5Sans","PingFang SC","Noto Sans SC","Helvetica Neue",Arial,sans-serif',
-    sans:   '"T5Sans","PingFang SC","Noto Sans SC","Helvetica Neue",Arial,sans-serif',
-    serif:  '"T5Serif","Songti SC","Noto Serif SC","Times New Roman",serif',
-    song:   '"T5Serif","Songti SC","Noto Serif SC","Times New Roman",serif',
-    kai:    '"Kaiti SC","STKaiti","T5Serif","Noto Serif SC",serif',
-    mono:   '"SF Mono","Menlo","Monaco","Cascadia Code",monospace'
-  };
+  const FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 48];
 
-  function fontSpec(name, px) {
-    const family = FONT_FAMILIES[name] || FONT_FAMILIES.sans;
-    return Math.max(1, Math.round(px)) + 'px ' + family;
+  /* Browser-facing font stacks.  In the editor the native AirPage glyph
+   * pipeline is installed as a backend; the stacks below are the fallback
+   * for standalone use and for mono/kai, which have no native bitmap. */
+  const FONT_STACKS = {
+    sans:  { label: '黑体', stack: '"T5Sans","PingFang SC","Noto Sans SC","Helvetica Neue",Arial,sans-serif' },
+    serif: { label: '宋体', stack: '"T5Serif","Songti SC","Noto Serif SC","Times New Roman",serif' },
+    song:  { label: '宋体（兼容）', stack: '"T5Serif","Songti SC","Noto Serif SC","Times New Roman",serif' },
+    pixel: { label: '像素 8/10/12', stack: '"T5Pixel8","T5Pixel10","T5Pixel","T5Sans",sans-serif' },
+    mono:  { label: '等宽', stack: '"SF Mono","Menlo","Monaco","Cascadia Code",monospace' },
+    kai:   { label: '楷体', stack: '"Kaiti SC","STKaiti","T5Serif","Noto Serif SC",serif' }
+  };
+  const FONT_ALIASES = {
+    system: 'sans', sans: 'sans', serif: 'serif', song: 'song',
+    pixel: 'pixel', mono: 'mono', kai: 'kai'
+  };
+  const FONTS = {};
+  Object.keys(FONT_STACKS).forEach(function (name) {
+    FONTS[name] = {
+      name: name,
+      label: FONT_STACKS[name].label,
+      sizes: name === 'pixel' ? [8, 10, 12] : FONT_SIZES.slice()
+    };
+  });
+
+  let typeBackend = null;
+
+  function setTypeBackend(backend) {
+    typeBackend = (backend && typeof backend.draw === 'function' &&
+      typeof backend.measure === 'function') ? backend : null;
+  }
+
+  function fontFamily(name) {
+    const key = String(name === undefined || name === null ? '' : name).toLowerCase();
+    return FONT_ALIASES[key] || 'sans';
+  }
+
+  function pixelSize(px) {
+    return px <= 8 ? 8 : px <= 10 ? 10 : 12;
+  }
+
+  function fontSpec(name, px, weight) {
+    const fam = fontFamily(name);
+    const size = fam === 'pixel'
+      ? pixelSize(Math.max(1, Math.round(px)))
+      : Math.max(1, Math.round(px));
+    const prefix = Number(weight) >= 600 ? '700 ' : '';
+    if (fam === 'pixel') {
+      const face = size === 8 ? 'T5Pixel8' : size === 10 ? 'T5Pixel10' : 'T5Pixel';
+      return prefix + size + 'px "' + face + '","T5Sans",sans-serif';
+    }
+    return prefix + size + 'px ' + FONT_STACKS[fam].stack;
+  }
+
+  function makeFont(input, family, weight) {
+    let size = 12, fam = 'sans', wt = 400;
+    if (input && typeof input === 'object') {
+      const nested = (input.font && typeof input.font === 'object') ? input.font : null;
+      size = input.size !== undefined ? input.size
+        : (input.fontSize !== undefined ? input.fontSize
+        : (input.scale !== undefined ? input.scale
+        : (nested && nested.size !== undefined ? nested.size : size)));
+      fam = nested ? nested.family : (input.font || input.family || fam);
+      wt = input.weight !== undefined ? input.weight
+        : (nested && nested.weight !== undefined ? nested.weight : wt);
+    } else if (typeof input === 'number') {
+      size = input;
+    } else if (typeof input === 'string') {
+      fam = input;
+    }
+    if (family !== undefined && family !== null) fam = family;
+    if (weight !== undefined && weight !== null) wt = weight;
+    fam = fontFamily(fam);
+    size = Math.max(1, Math.round(Number(size) || 12));
+    if (fam === 'pixel') size = pixelSize(size);
+    wt = Number(wt) || 400;
+    return {
+      size: size,
+      family: fam,
+      name: fam,
+      weight: wt,
+      label: FONT_STACKS[fam].label,
+      css: fontSpec(fam, size, wt),
+      lineHeight: Math.max(1, Math.round(size * 1.4))
+    };
+  }
+
+  function canNative(font) {
+    if (!typeBackend || font.family === 'mono' || font.family === 'kai') return false;
+    try {
+      return typeBackend.supports ? typeBackend.supports(font.family) !== false : true;
+    } catch (e) {
+      return false;
+    }
   }
 
   function createPaper(width, height) {
@@ -196,80 +279,294 @@
       }
     }
 
-    function measureText(text, fontName, fontSize) {
-      const px = (fontSize === undefined || fontSize === null) ? 12 : Number(fontSize);
+    let currentFont = makeFont(12, 'sans');
+
+    function fontOf(input) {
+      if (input === undefined || input === null) return currentFont;
+      if (typeof input === 'number') return makeFont(input, currentFont.family, currentFont.weight);
+      if (typeof input === 'string') return makeFont(currentFont.size, input, currentFont.weight);
+      if (input && typeof input === 'object') {
+        const nested = (input.font && typeof input.font === 'object') ? input.font : null;
+        const size = input.size !== undefined ? input.size
+          : (input.fontSize !== undefined ? input.fontSize
+          : (input.scale !== undefined ? input.scale
+          : (nested && nested.size !== undefined ? nested.size : currentFont.size)));
+        const fam = nested ? nested.family
+          : (input.font || input.family || input.name || currentFont.family);
+        const wt = input.weight !== undefined ? input.weight
+          : (nested && nested.weight !== undefined ? nested.weight : currentFont.weight);
+        return makeFont(size, fam, wt);
+      }
+      return currentFont;
+    }
+
+    function measureLine(value, font) {
+      const s = String(value === undefined || value === null ? '' : value);
+      if (canNative(font)) {
+        try {
+          const m = typeBackend.measure(s, font.size, font.family);
+          if (m) {
+            const asc = Math.ceil(m.ascender !== undefined ? m.ascender : (m.baseline !== undefined ? m.baseline : font.size * 0.8));
+            const dsc = Math.ceil(m.descender !== undefined ? m.descender : font.size * 0.2);
+            const height = Math.ceil(m.height !== undefined ? m.height : asc + dsc);
+            return {
+              width: Math.ceil(m.width || 0), height: Math.max(1, height),
+              ascender: Math.max(1, asc), descender: Math.max(0, dsc), baseline: Math.max(1, asc)
+            };
+          }
+        } catch (e) { /* fall through to Canvas */ }
+      }
       textCtx.save();
-      textCtx.font = fontSpec(fontName || 'sans', px);
-      const m = textCtx.measureText(String(text === undefined ? '' : text));
+      textCtx.font = font.css;
+      const m = textCtx.measureText(s);
       textCtx.restore();
-      const asc = (m.fontBoundingBoxAscent !== undefined)
-        ? Math.ceil(m.fontBoundingBoxAscent) : Math.ceil(px * 0.8);
-      const dsc = (m.fontBoundingBoxDescent !== undefined)
-        ? Math.ceil(m.fontBoundingBoxDescent) : Math.ceil(px * 0.2);
+      let asc = (m.fontBoundingBoxAscent !== undefined) ? Math.ceil(m.fontBoundingBoxAscent) : Math.ceil(font.size * 0.8);
+      let dsc = (m.fontBoundingBoxDescent !== undefined) ? Math.ceil(m.fontBoundingBoxDescent) : Math.ceil(font.size * 0.2);
+      if (!isFinite(asc) || asc <= 0) asc = Math.ceil(font.size * 0.8);
+      if (!isFinite(dsc) || dsc < 0) dsc = Math.ceil(font.size * 0.2);
       return {
-        width: Math.ceil(m.width || 0),
-        height: asc + dsc,
-        ascender: asc,
-        descender: dsc,
-        baseline: asc
+        width: Math.ceil(m.width || 0), height: Math.max(1, asc + dsc),
+        ascender: asc, descender: dsc, baseline: asc
       };
     }
 
-    function drawTextEx(x, y, text, ink, fontSize, fontName) {
-      text = String(text === undefined || text === null ? '' : text);
-      if (!text) return;
-      const px = Math.max(1, Math.round(Number(fontSize) || 12));
-      const name = fontName || 'sans';
-      textCtx.clearRect(0, 0, w, h);
-      textCtx.save();
-      textCtx.font = fontSpec(name, px);
-      textCtx.textAlign = 'left';
-      textCtx.textBaseline = 'top';
-      textCtx.fillStyle = '#000';
-      textCtx.fillText(text, Math.round(x), Math.round(y));
-      textCtx.restore();
-      const data = textCtx.getImageData(0, 0, w, h).data;
-      const b = inkBit(ink);
-      for (let i = 0; i < w * h; i++) {
-        if (data[i * 4 + 3] > 96) bits[i] = b;
-      }
+    function lineHeightOf(opts, font) {
+      const v = Number(opts && opts.lineHeight);
+      if (v > 0) return Math.max(1, Math.round(v <= 4 ? font.size * v : v));
+      return Math.max(1, Math.round(font.size * 1.4));
     }
 
-    function drawText(x, y, text, ink, scale) {
-      const s = Number(scale) || 1;
-      drawTextEx(x, y, text, ink, Math.max(1, Math.round(12 * s)), 'sans');
-    }
-
-    function drawTextBox(x, y, bw, bh, text, ink, opts) {
-      opts = opts || {};
-      const fontName = opts.font || 'sans';
-      const fontSize = Number(opts.size || opts.scale || 12);
-      const lineHeight = Math.max(fontSize, Math.round(fontSize * (Number(opts.lineHeight) > 0 ? Number(opts.lineHeight) / 100 : 1.25)));
-      const align = opts.align || 'left';
-      const words = String(text).split('\n');
-      let lines = [];
-      for (const raw of words) {
-        if (!raw) { lines.push(''); continue; }
+    function splitLines(value, maxWidth, font) {
+      const out = [];
+      const raw = String(value === undefined || value === null ? '' : value).split('\n');
+      for (const para of raw) {
+        if (!para) { out.push(''); continue; }
+        if (!(maxWidth > 0)) { out.push(para); continue; }
         let line = '';
-        for (const ch of raw) {
+        for (const ch of Array.from(para)) {
           const test = line + ch;
-          if (line && measureText(test, fontName, fontSize).width > bw) {
-            lines.push(line);
+          if (line && measureLine(test, font).width > maxWidth) {
+            out.push(line);
             line = ch;
           } else {
             line = test;
           }
         }
-        if (line) lines.push(line);
+        out.push(line);
       }
-      const maxLines = Math.max(1, Math.floor(bh / lineHeight));
-      lines = lines.slice(0, maxLines);
-      lines.forEach((line, i) => {
-        let lx = x;
-        if (align === 'center') lx = x + (bw - measureText(line, fontName, fontSize).width) / 2;
-        if (align === 'right') lx = x + bw - measureText(line, fontName, fontSize).width;
-        drawTextEx(lx, y + i * lineHeight, line, ink, fontSize, fontName);
+      return out.length ? out : [''];
+    }
+
+    function ellipsisLine(line, maxWidth, font, mark) {
+      mark = mark || '…';
+      if (!(maxWidth > 0) || measureLine(line, font).width <= maxWidth) return line;
+      let s = String(line);
+      while (s && measureLine(s + mark, font).width > maxWidth) s = s.slice(0, -1);
+      return s ? s + mark : '';
+    }
+
+    function truncateLine(line, maxWidth, font, mark) {
+      mark = mark || '…';
+      if (!(maxWidth > 0)) return String(line) + mark;
+      let s = String(line);
+      while (s && measureLine(s + mark, font).width > maxWidth) s = s.slice(0, -1);
+      return s ? s + mark : (measureLine(mark, font).width <= maxWidth ? mark : '');
+    }
+
+    function limitLines(lines, maxLines, maxWidth, font, ellipsis) {
+      if (!(maxLines > 0) || lines.length <= maxLines) return lines;
+      const out = lines.slice(0, maxLines);
+      if (ellipsis !== false) out[out.length - 1] = truncateLine(out[out.length - 1], maxWidth, font);
+      return out;
+    }
+
+    function metricsOf(lines, font, lh) {
+      let width = 0, asc = 0, desc = 0;
+      for (const line of lines) {
+        const m = measureLine(line, font);
+        if (m.width > width) width = m.width;
+        if (m.ascender > asc) asc = m.ascender;
+        if (m.descender > desc) desc = m.descender;
+      }
+      return {
+        width: width, height: Math.max(1, lines.length * lh), lineHeight: lh,
+        ascender: asc, descender: desc, baseline: asc
+      };
+    }
+
+    function drawOneLine(value, x, top, ink, font, align) {
+      const m = measureLine(value, font);
+      let dx = x;
+      if (align === 'center') dx = x - m.width / 2;
+      else if (align === 'right') dx = x - m.width;
+      textCtx.clearRect(0, 0, w, h);
+      let painted = false;
+      if (canNative(font)) {
+        try {
+          textCtx.save();
+          typeBackend.draw(textCtx, value, Math.round(dx), Math.round(top), font.size, font.family);
+          textCtx.restore();
+          painted = true;
+        } catch (e) {
+          try { textCtx.restore(); } catch (e2) {}
+        }
+      }
+      if (!painted) {
+        textCtx.save();
+        textCtx.font = font.css;
+        textCtx.textAlign = 'left';
+        textCtx.textBaseline = 'top';
+        textCtx.fillStyle = '#000';
+        textCtx.fillText(value, Math.round(dx), Math.round(top));
+        textCtx.restore();
+      }
+      const data = textCtx.getImageData(0, 0, w, h).data;
+      const b = inkBit(ink);
+      for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] > 96) bits[i] = b;
+    }
+
+    function topOf(y, height, baseline, ascender) {
+      const b = String(baseline || 'top').toLowerCase();
+      if (b === 'middle' || b === 'center') return y - height / 2;
+      if (b === 'bottom') return y - height;
+      if (b === 'alphabetic' || b === 'baseline') return y - ascender;
+      return y;
+    }
+
+    function renderText(value, x, y, opts) {
+      opts = opts || {};
+      const font = fontOf(opts);
+      const align = opts.align || 'left';
+      const maxWidth = Number(opts.width !== undefined ? opts.width : opts.maxWidth) || 0;
+      let lines = splitLines(value, maxWidth, font);
+      const maxLines = Number(opts.maxLines) > 0 ? Math.floor(Number(opts.maxLines)) : 0;
+      lines = limitLines(lines, maxLines, maxWidth, font, opts.ellipsis);
+      const lh = lineHeightOf(opts, font);
+      const m = metricsOf(lines, font, lh);
+      const top = topOf(Number(y) || 0, m.height, opts.baseline, m.ascender);
+      const ink = opts.ink === undefined ? BLACK : opts.ink;
+      for (let i = 0; i < lines.length; i++) {
+        drawOneLine(lines[i], Number(x) || 0, top + i * lh, ink, font, align);
+      }
+      m.lines = lines;
+      m.font = font;
+      return m;
+    }
+
+    function measure(value, opts) {
+      opts = opts || {};
+      const font = fontOf(opts);
+      const maxWidth = Number(opts.width !== undefined ? opts.width : opts.maxWidth) || 0;
+      let lines = splitLines(value, maxWidth, font);
+      const maxLines = Number(opts.maxLines) > 0 ? Math.floor(Number(opts.maxLines)) : 0;
+      lines = limitLines(lines, maxLines, maxWidth, font, opts.ellipsis);
+      const lh = lineHeightOf(opts, font);
+      const m = metricsOf(lines, font, lh);
+      m.lines = lines;
+      m.font = font;
+      return m;
+    }
+
+    function drawTextEx(x, y, value, ink, fontSize, fontName) {
+      if (fontSize && typeof fontSize === 'object') {
+        const o = {};
+        for (const k in fontSize) o[k] = fontSize[k];
+        if (o.ink === undefined) o.ink = ink;
+        if (!o.baseline) o.baseline = 'top';
+        return renderText(value, x, y, o);
+      }
+      return renderText(value, x, y, {
+        size: fontSize === undefined ? 12 : fontSize,
+        font: fontName || 'sans',
+        ink: ink,
+        baseline: 'top'
       });
+    }
+
+    function drawText(x, y, value, ink, scale) {
+      const s = Number(scale) || 1;
+      return drawTextEx(x, y, value, ink, Math.max(1, Math.round(12 * s)), 'sans');
+    }
+
+    function text(a, b, c, d, e) {
+      if (typeof a === 'string') return renderText(a, b, c, d);
+      if (a && typeof a === 'object') {
+        return renderText(a.text === undefined ? '' : a.text,
+          a.x === undefined ? 0 : a.x, a.y === undefined ? 0 : a.y, a);
+      }
+      return drawText(a, b, c, d, e);
+    }
+
+    function measureText(value, fontName, fontSize) {
+      if (fontName && typeof fontName === 'object') return measure(value, fontName);
+      if (typeof fontName === 'number') return measure(value, { size: fontName, font: fontSize });
+      return measure(value, {
+        font: fontName || 'sans',
+        size: fontSize === undefined ? 12 : fontSize
+      });
+    }
+
+    function wrapText(value, maxWidth, opts) {
+      if (typeof opts === 'number') opts = { size: opts };
+      else if (typeof opts === 'string') opts = { font: opts };
+      else if (!opts) opts = {};
+      return splitLines(value, Math.max(0, Number(maxWidth) || 0), fontOf(opts));
+    }
+
+    function fitText(value, maxWidth, opts) {
+      if (typeof opts === 'number') opts = { size: opts };
+      else if (typeof opts === 'string') opts = { font: opts };
+      else if (!opts) opts = {};
+      const font = fontOf(opts);
+      let s = String(value === undefined || value === null ? '' : value);
+      if (measureLine(s, font).width <= maxWidth) return s;
+      const mark = opts.ellipsisText || '…';
+      while (s && measureLine(s + mark, font).width > maxWidth) s = s.slice(0, -1);
+      return s ? s + mark : '';
+    }
+
+    function textBox(value, x, y, bw, bh, opts) {
+      opts = opts || {};
+      const font = fontOf(opts);
+      const bwv = Math.max(1, Number(bw) || 0);
+      const bhv = Math.max(1, Number(bh) || 0);
+      const lh = lineHeightOf(opts, font);
+      const maxLines = Math.max(1, Math.floor(bhv / lh));
+      let lines = splitLines(value, bwv, font);
+      lines = limitLines(lines, maxLines, bwv, font, opts.ellipsis);
+      const m = metricsOf(lines, font, lh);
+      let top = Number(y) || 0;
+      const valign = String(opts.valign || 'top').toLowerCase();
+      if (valign === 'middle' || valign === 'center') top += (bhv - m.height) / 2;
+      else if (valign === 'bottom') top += bhv - m.height;
+      const ink = opts.ink === undefined ? BLACK : opts.ink;
+      for (let i = 0; i < lines.length; i++) {
+        drawOneLine(lines[i], Number(x) || 0, top + i * lh, ink, font, opts.align || 'left');
+      }
+      m.lines = lines;
+      m.font = font;
+      m.top = top;
+      return m;
+    }
+
+    function drawTextBox(x, y, bw, bh, value, ink, opts) {
+      const o = {};
+      if (opts) for (const k in opts) o[k] = opts[k];
+      o.ink = ink;
+      if (o.lineHeight !== undefined) {
+        const n = Number(o.lineHeight);
+        if (n > 4) o.lineHeight = n / 100;
+      }
+      return textBox(value, x, y, bw, bh, o);
+    }
+
+    function font(sizeOrOptions, family) {
+      return makeFont(sizeOrOptions, family);
+    }
+
+    function setFont(sizeOrOptions, family) {
+      currentFont = makeFont(sizeOrOptions, family);
+      return currentFont;
     }
 
     function commit() { /* the app packs the buffer after the script returns */ }
@@ -301,10 +598,19 @@
       stroke: stroke,
       fill: fill,
       drawText: drawText,
-      text: drawText,
       drawTextEx: drawTextEx,
+      text: text,
+      measure: measure,
       measureText: measureText,
+      wrapText: wrapText,
+      fitText: fitText,
+      textBox: textBox,
       drawTextBox: drawTextBox,
+      font: font,
+      setFont: setFont,
+      getFont: function () { return currentFont; },
+      fonts: FONTS,
+      fontSizes: FONT_SIZES,
       commit: commit,
       log: log,
       getBits: function () { return bits; },
@@ -327,6 +633,12 @@
       store: function (k, v) { try { localStorage.setItem('t5js:' + k, JSON.stringify(v)); } catch (e) {} },
       load: function (k) { try { const v = localStorage.getItem('t5js:' + k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
     };
+    Object.defineProperty(api, 'currentFont', {
+      get: function () { return currentFont; }
+    });
+    Object.defineProperty(api, 'nativeText', {
+      get: function () { return !!typeBackend; }
+    });
     Object.defineProperty(api, 'fillStyle', {
       get: function () { return fillStyle; },
       set: function (v) { fillStyle = v; }
@@ -654,8 +966,9 @@ var W = paper.size.width, H = paper.size.height;
 var land = W > H;
 paper.clear(C.white);
 paper.fillRect(0, 0, W, 6, C.black);
-paper.drawTextEx(8, land ? 14 : 18, "T5 AirPage", C.black, land ? 18 : 20, "sans");
-paper.drawTextEx(8, land ? 38 : 44, "JS canvas", C.black, 10, "sans");
+var titleFont = paper.font(land ? 18 : 20, "sans");
+paper.text("T5 AirPage", 8, land ? 14 : 18, { font: titleFont });
+paper.text("JS canvas", 8, land ? 38 : 44, { size: 10, font: "sans" });
 var lineY = land ? 52 : 60;
 paper.drawLine(8, lineY, W - 8, lineY, C.black);
 var cy = land ? 72 : 98;
@@ -666,10 +979,10 @@ var by = land ? H - 30 : H - 44;
 var bh = land ? 22 : 30;
 paper.drawRect(8, by, W - 16, bh, C.black);
 if (land) {
-  paper.drawTextEx(14, by + 6, "122 × 250 · 1-bit", C.black, 8, "mono");
+  paper.text("122 × 250 · 1-bit", 14, by + 6, { size: 8, font: "mono" });
 } else {
-  paper.drawTextEx(14, by + 3, "122 × 250", C.black, 9, "mono");
-  paper.drawTextEx(14, by + 15, "1-bit", C.black, 8, "mono");
+  paper.text("122 × 250", 14, by + 3, { size: 9, font: "mono" });
+  paper.text("1-bit", 14, by + 15, { size: 8, font: "mono" });
 }
 paper.commit();`
     },
@@ -715,6 +1028,9 @@ paper.commit();`
   global.T5Paper = {
     create: createPaper,
     samples: samples,
+    fontSizes: FONT_SIZES,
+    fonts: FONTS,
+    setTypeBackend: setTypeBackend,
     BLACK: BLACK,
     WHITE: WHITE,
     colors: COLORS

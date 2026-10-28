@@ -371,6 +371,57 @@ function wrapText(str, maxWidth, size = 12) {
   return out;
 }
 
+/* Native glyph metrics/draw used by the JS canvas text API.  The JS editor
+ * normally runs with these installed so JS text (including song/pixel) uses
+ * the same Fusion/WQY/Noto/Song glyph pipeline as the built-in cards. */
+function nativeFontMode(family) {
+  if (family === 'sans') return 'sans';
+  if (family === 'pixel' || family === 'song') return 'pixel';
+  return 'serif';
+}
+
+function nativeTypeMetrics(value, size, family) {
+  const prev = activeFont;
+  activeFont = nativeFontMode(family);
+  try {
+    const str = String(value === undefined || value === null ? '' : value);
+    let width = 0, height = 0;
+    const asc = ascentFor(size);
+    for (const ch of Array.from(str)) {
+      const g = glyph(ch, size);
+      width += g.w;
+      if (g.size > height) height = g.size;
+    }
+    if (!height) height = Math.max(1, Math.round(size * 1.25));
+    return {
+      width: Math.ceil(width), height: Math.ceil(height),
+      ascender: asc, descender: Math.max(0, Math.ceil(height - asc)), baseline: asc
+    };
+  } finally {
+    activeFont = prev;
+  }
+}
+
+function nativeTypeDraw(ctx, value, x, top, size, family) {
+  const prev = activeFont;
+  activeFont = nativeFontMode(family);
+  try {
+    const asc = ascentFor(size);
+    text(ctx, value, x, Math.round(top) + asc, size, 'left');
+  } finally {
+    activeFont = prev;
+  }
+}
+
+function installTypeBackend() {
+  if (!window.T5Paper || !T5Paper.setTypeBackend) return;
+  T5Paper.setTypeBackend({
+    supports: family => family !== 'mono' && family !== 'kai',
+    measure: nativeTypeMetrics,
+    draw: nativeTypeDraw
+  });
+}
+
 /* ---------- drawing helpers ---------- */
 function fillWhite(ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
 function hline(ctx, x1, x2, y) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y + .5); ctx.lineTo(x2, y + .5); ctx.stroke(); }
@@ -728,7 +779,7 @@ function renderControls() {
       '</select></div>';
     h += '<div class="row"><label>脚本</label><textarea id="jsCode" class="code" rows="15" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
     h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送</span></div>';
-    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。API：paper.clear / setPixel / drawLine / fillRect / drawCircle / drawTextEx / beginPath / commit。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
+    h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。API：paper.font / text / measure / wrapText / fitText / textBox，以及 clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
   }
   c.innerHTML = h;
 
@@ -1017,6 +1068,8 @@ async function boot() {
       console.warn('Noto Serif detail face unavailable; 18-32 will fall back to 24px Song', e);
       serifReady = false;
     }
+    installTypeBackend();
+    jsCache.code = null;
     setOrientation('portrait');
     renderControls();
   } catch (e) {
