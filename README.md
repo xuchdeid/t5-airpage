@@ -123,6 +123,7 @@ Examples:
 The exact same source can be Run in the browser, sent as a 4,000-byte bitmap,
 or pushed to the T5. A successful push leaves the previous source/image intact
 on failure (error 11 or 12).
+
 ## Browser support
 
 - Android Chrome / Edge: yes
