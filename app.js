@@ -389,15 +389,6 @@ function wrapText(str, maxWidth, size = 12) {
   return out;
 }
 
-/* Native glyph metrics/draw used by the JS canvas text API.  The JS editor
- * normally runs with these installed so JS text (including song/pixel) uses
- * the same Fusion/WQY/Noto/Song glyph pipeline as the built-in cards. */
-function nativeFontMode(family) {
-  if (family === 'sans') return 'sans';
-  if (family === 'pixel' || family === 'song') return 'pixel';
-  return 'serif';
-}
-
 /* ---------- drawing helpers ---------- */
 function fillWhite(ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
 function hline(ctx, x1, x2, y) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y + .5); ctx.lineTo(x2, y + .5); ctx.stroke(); }
@@ -1054,6 +1045,7 @@ async function writeData(bytes, withResponse) {
 async function sendImage() {
   if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
   if (state.template === 'js') {
+    if (state.orientation !== 'portrait') setOrientation('portrait');
     executeJS();
     render();
     if (jsCache.error) {
