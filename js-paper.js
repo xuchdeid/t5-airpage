@@ -341,7 +341,10 @@
       const raw = String(value === undefined || value === null ? '' : value).split('\n');
       for (const para of raw) {
         if (!para) { out.push(''); continue; }
-        if (!(maxWidth > 0)) { out.push(para); continue; }
+        if (!(maxWidth > 0) || measureLine(para, font).width <= maxWidth) {
+          out.push(para);
+          continue;
+        }
         let line = '';
         for (const ch of Array.from(para)) {
           const test = line + ch;
@@ -560,6 +563,408 @@
       return textBox(value, x, y, bw, bh, o);
     }
 
+
+    /* ---------- tiny flex layout layer ---------- */
+    /* PocketJS-style components, reduced to what a 1-bit panel needs:
+     * column/row containers, gap, padding/margin, grow, justify/align,
+     * auto text measurement, wrapping and one-shot render. */
+
+    function layoutPad(value) {
+      if (value === undefined || value === null || value === '') return { t: 0, r: 0, b: 0, l: 0, x: 0, y: 0 };
+      if (Array.isArray(value)) {
+        const n = value.map(function (v) { return Number(v) || 0; });
+        if (n.length === 1) return { t: n[0], r: n[0], b: n[0], l: n[0], x: n[0] * 2, y: n[0] * 2 };
+        if (n.length === 2) return { t: n[0], r: n[1], b: n[0], l: n[1], x: n[1] * 2, y: n[0] * 2 };
+        if (n.length >= 4) return { t: n[0], r: n[1], b: n[2], l: n[3], x: n[1] + n[3], y: n[0] + n[2] };
+        return { t: n[0] || 0, r: n[0] || 0, b: n[0] || 0, l: n[0] || 0, x: (n[0] || 0) * 2, y: (n[0] || 0) * 2 };
+      }
+      const n = Number(value) || 0;
+      return { t: n, r: n, b: n, l: n, x: n * 2, y: n * 2 };
+    }
+
+    function layoutNum(value) {
+      if (value === undefined || value === null || value === '' || value === 'auto') return null;
+      const n = Number(value);
+      return isFinite(n) ? n : null;
+    }
+
+    function layoutAlign(value, fallback) {
+      const v = String(value === undefined || value === null ? fallback : value).toLowerCase();
+      if (v === 'flex-start' || v === 'left' || v === 'top') return 'start';
+      if (v === 'flex-end' || v === 'right' || v === 'bottom') return 'end';
+      if (v === 'space-between' || v === 'between') return 'between';
+      if (v === 'space-around' || v === 'around') return 'around';
+      if (v === 'center' || v === 'middle') return 'center';
+      return 'stretch';
+    }
+
+    function layoutJustify(value) {
+      const v = String(value === undefined || value === null ? 'start' : value).toLowerCase();
+      if (v === 'flex-start' || v === 'left' || v === 'top') return 'start';
+      if (v === 'flex-end' || v === 'right' || v === 'bottom') return 'end';
+      if (v === 'space-between' || v === 'between') return 'between';
+      if (v === 'space-around' || v === 'around') return 'around';
+      if (v === 'center' || v === 'middle') return 'center';
+      return 'start';
+    }
+
+    function layoutTextStyle(style) {
+      const o = {};
+      if (style) for (const k in style) o[k] = style[k];
+      if (o.bold && o.weight === undefined) o.weight = 700;
+      if (o.color !== undefined && o.ink === undefined) o.ink = o.color;
+      if (o.textAlign !== undefined && o.align === undefined) o.align = o.textAlign;
+      if (o.verticalAlign !== undefined && o.valign === undefined) o.valign = o.verticalAlign;
+      return o;
+    }
+
+    function layoutText(node, availW, availH) {
+      const style = node.style || {};
+      const pad = layoutPad(style.padding);
+      const margin = layoutPad(style.margin);
+      const value = String(node.value === undefined || node.value === null ? '' : node.value);
+      const ts = layoutTextStyle(style);
+      const font = fontOf(ts);
+      const lh = lineHeightOf(ts, font);
+      const explicitW = layoutNum(style.width);
+      const explicitH = layoutNum(style.height);
+      let contentW = explicitW !== null ? Math.max(0, explicitW - pad.x)
+        : (availW !== undefined && availW !== null ? Math.max(0, Number(availW) - pad.x) : 0);
+      let lines = (style.wrap === false || contentW <= 0)
+        ? value.split('\n')
+        : splitLines(value, contentW, font);
+      let maxLines = 0;
+      if (explicitH !== null) {
+        maxLines = Math.max(1, Math.floor(Math.max(0, explicitH - pad.y) / lh));
+      } else if (availH !== undefined && availH !== null && Number(availH) > 0) {
+        maxLines = Math.max(1, Math.floor(Math.max(0, Number(availH) - pad.y) / lh));
+      }
+      if (Number(style.maxLines) > 0) {
+        maxLines = maxLines > 0
+          ? Math.min(maxLines, Math.floor(Number(style.maxLines)))
+          : Math.floor(Number(style.maxLines));
+      }
+      lines = limitLines(lines, maxLines, contentW, font, style.ellipsis !== false);
+      let contentWidth = 0;
+      for (const line of lines) {
+        const w = measureLine(line, font).width;
+        if (w > contentWidth) contentWidth = w;
+      }
+      const width = explicitW !== null ? explicitW : contentWidth + pad.x;
+      const height = explicitH !== null ? explicitH : lines.length * lh + pad.y;
+      return {
+        w: Math.max(0, width), h: Math.max(0, height),
+        lines: lines, font: font, lineHeight: lh, pad: pad, margin: margin,
+        ink: ts.ink === undefined ? BLACK : ts.ink,
+        align: ts.align, valign: ts.valign
+      };
+    }
+
+    function layoutAllocate(children, contentW, contentH, isRow, gap, alignItems) {
+      const items = [];
+      for (const child of (children || [])) {
+        if (!child || (child.style && child.style.hidden)) continue;
+        const cstyle = child.style || {};
+        const m = layoutMeasure(child, contentW, contentH);
+        const margin = layoutPad(cstyle.margin);
+        let cw = layoutNum(cstyle.width);
+        let ch = layoutNum(cstyle.height);
+        const basisW = layoutNum(cstyle.basis !== undefined ? cstyle.basis : cstyle.flexBasis);
+        if (cw === null) cw = basisW !== null ? basisW : m.w;
+        if (ch === null) ch = basisW !== null ? basisW : m.h;
+        const align = layoutAlign(cstyle.alignSelf, alignItems);
+        if (isRow) {
+          if (layoutNum(cstyle.height) === null && align === 'stretch' && contentH !== null) {
+            ch = Math.max(0, contentH - margin.y);
+          }
+        } else {
+          if (layoutNum(cstyle.width) === null && align === 'stretch' && contentW !== null) {
+            cw = Math.max(0, contentW - margin.x);
+          }
+        }
+        const flex = Number(cstyle.flex);
+        const grow = Math.max(0, Number(cstyle.grow) || (isFinite(flex) ? flex : 0));
+        const fixedW = layoutNum(cstyle.width) !== null || basisW !== null;
+        const shrink = cstyle.shrink === undefined
+          ? (isRow && fixedW ? 0 : 1)
+          : Math.max(0, Number(cstyle.shrink) || 0);
+        items.push({
+          child: child, cw: Math.max(0, cw), ch: Math.max(0, ch),
+          margin: margin, align: align, grow: grow, shrink: shrink
+        });
+      }
+
+      const gapTotal = items.length > 1 ? Math.max(0, Number(gap) || 0) * (items.length - 1) : 0;
+      const main = isRow ? contentW : contentH;
+      let used = 0, growTotal = 0;
+      for (const it of items) {
+        used += isRow ? it.cw + it.margin.x : it.ch + it.margin.y;
+        growTotal += it.grow;
+      }
+      let free = main === null ? 0 : main - used - gapTotal;
+      if (free > 0 && growTotal > 0) {
+        for (const it of items) {
+          const add = free * it.grow / growTotal;
+          if (isRow) it.cw += add; else it.ch += add;
+        }
+      } else if (free < 0 && isRow) {
+        let weight = 0;
+        for (const it of items) {
+          if (it.shrink > 0) weight += it.cw * it.shrink;
+        }
+        if (weight > 0) {
+          const deficit = -free;
+          for (const it of items) {
+            if (it.shrink <= 0 || it.cw <= 0) continue;
+            const take = deficit * (it.cw * it.shrink) / weight;
+            it.cw = Math.max(0, it.cw - take);
+          }
+        }
+      }
+
+      if (isRow) {
+        for (const it of items) {
+          const cstyle = it.child.style || {};
+          if (layoutNum(cstyle.height) !== null) continue;
+          if (it.align === 'stretch' && contentH !== null) {
+            it.ch = Math.max(0, contentH - it.margin.y);
+          } else {
+            it.ch = layoutMeasure(it.child, it.cw, null).h;
+          }
+        }
+      }
+      return items;
+    }
+
+    function layoutMeasure(node, availW, availH) {
+      if (!node) return { w: 0, h: 0, margin: layoutPad(0) };
+      const style = node.style || {};
+      const margin = layoutPad(style.margin);
+      if (node.type === 'text') {
+        const t = layoutText(node, availW);
+        return { w: t.w, h: t.h, margin: margin };
+      }
+      if (node.type === 'spacer') {
+        const w = layoutNum(style.width);
+        const h = layoutNum(style.height);
+        return { w: w === null ? 0 : Math.max(0, w), h: h === null ? 0 : Math.max(0, h), margin: margin };
+      }
+      if (node.type === 'divider') {
+        const w = layoutNum(style.width);
+        const h = layoutNum(style.height);
+        return { w: w === null ? 0 : Math.max(0, w), h: h === null ? 1 : Math.max(1, h), margin: margin };
+      }
+      if (node.type !== 'view') return { w: 0, h: 0, margin: margin };
+
+      const pad = layoutPad(style.padding);
+      const explicitW = layoutNum(style.width);
+      const explicitH = layoutNum(style.height);
+      const gap = Math.max(0, Number(style.gap) || 0);
+      const childW = explicitW !== null ? Math.max(0, explicitW - pad.x)
+        : (availW !== undefined && availW !== null ? Math.max(0, Number(availW) - pad.x) : null);
+      const childH = explicitH !== null ? Math.max(0, explicitH - pad.y) : null;
+      const isRow = node.direction === 'row';
+      const items = layoutAllocate(node.children, childW, childH, isRow, gap, layoutAlign(style.align, 'stretch'));
+      const gapTotal = items.length > 1 ? gap * (items.length - 1) : 0;
+      let sumW = 0, sumH = 0, maxW = 0, maxH = 0;
+      for (const it of items) {
+        const cw = it.cw + it.margin.x;
+        const ch = it.ch + it.margin.y;
+        sumW += cw;
+        sumH += ch;
+        if (cw > maxW) maxW = cw;
+        if (ch > maxH) maxH = ch;
+      }
+      const intrinsicW = isRow ? sumW + gapTotal : maxW;
+      const intrinsicH = isRow ? maxH : sumH + gapTotal;
+      return {
+        w: explicitW !== null ? explicitW : intrinsicW + pad.x,
+        h: explicitH !== null ? explicitH : intrinsicH + pad.y,
+        margin: margin
+      };
+    }
+
+    function layoutArrange(node, x, y, width, height) {
+      const style = node.style || {};
+      const pad = layoutPad(style.padding);
+      const box = {
+        type: node.type,
+        x: Math.round(x), y: Math.round(y),
+        w: Math.max(0, Math.round(width)), h: Math.max(0, Math.round(height)),
+        node: node, children: []
+      };
+      if (style.hidden) return box;
+      const content = {
+        x: box.x + pad.l, y: box.y + pad.t,
+        w: Math.max(0, box.w - pad.x), h: Math.max(0, box.h - pad.y)
+      };
+      if (node.type === 'text') {
+        box.text = layoutText(node, box.w, box.h);
+        box.text.x = content.x;
+        box.text.y = content.y;
+        return box;
+      }
+      if (node.type !== 'view') return box;
+
+      const isRow = node.direction === 'row';
+      const gap = Math.max(0, Number(style.gap) || 0);
+      const alignItems = layoutAlign(style.align, 'stretch');
+      const justify = layoutJustify(style.justify);
+      const items = layoutAllocate(node.children, content.w, content.h, isRow, gap, alignItems);
+      const gapTotal = items.length > 1 ? gap * (items.length - 1) : 0;
+      const mainSize = isRow ? content.w : content.h;
+      let used = 0;
+      for (const it of items) used += isRow ? it.cw + it.margin.x : it.ch + it.margin.y;
+
+      let cursor = isRow ? content.x : content.y;
+      let spacing = gap;
+      const extra = mainSize - used - gapTotal;
+      if (extra > 0) {
+        if (justify === 'center') cursor += extra / 2;
+        else if (justify === 'end') cursor += extra;
+        else if (justify === 'between' && items.length > 1) spacing += extra / (items.length - 1);
+        else if (justify === 'around' && items.length > 0) {
+          cursor += extra / (items.length * 2);
+          spacing += extra / items.length;
+        }
+      }
+
+      for (const it of items) {
+        const margin = it.margin;
+        let cx, cy;
+        if (isRow) {
+          cx = cursor + margin.l;
+          cy = content.y + margin.t;
+          const cross = content.h - margin.y;
+          if (it.align === 'center') cy += (cross - it.ch) / 2;
+          else if (it.align === 'end') cy += cross - it.ch;
+          cursor += it.cw + margin.x + spacing;
+        } else {
+          cy = cursor + margin.t;
+          cx = content.x + margin.l;
+          const cross = content.w - margin.x;
+          if (it.align === 'center') cx += (cross - it.cw) / 2;
+          else if (it.align === 'end') cx += cross - it.cw;
+          cursor += it.ch + margin.y + spacing;
+        }
+        box.children.push(layoutArrange(it.child, cx, cy, it.cw, it.ch));
+      }
+      return box;
+    }
+    function layoutFill(box, style) {
+      const fill = style.fill !== undefined ? style.fill : style.background;
+      if (fill !== undefined && fill !== null) fillRect(box.x, box.y, box.w, box.h, fill);
+    }
+
+    function layoutBorder(box, style) {
+      const n = Math.max(0, Math.floor(Number(style.border) || (style.border === true ? 1 : 0)));
+      if (!n) return;
+      const ink = style.borderColor === undefined ? BLACK : style.borderColor;
+      for (let i = 0; i < n; i++) {
+        const bw = box.w - i * 2, bh = box.h - i * 2;
+        if (bw > 0 && bh > 0) drawRect(box.x + i, box.y + i, bw, bh, ink);
+      }
+    }
+
+    function layoutPaint(box) {
+      if (!box || !box.node) return;
+      const node = box.node;
+      const style = node.style || {};
+      if (style.hidden) return;
+      layoutFill(box, style);
+      if (node.type === 'view') {
+        for (const child of box.children) layoutPaint(child);
+      } else if (node.type === 'text' && box.text) {
+        const t = box.text;
+        const content = {
+          x: box.x + t.pad.l, y: box.y + t.pad.t,
+          w: Math.max(0, box.w - t.pad.x), h: Math.max(0, box.h - t.pad.y)
+        };
+        const textH = t.lines.length * t.lineHeight;
+        const va = String(t.valign || 'top').toLowerCase();
+        let top = content.y;
+        if (va === 'middle' || va === 'center') top += (content.h - textH) / 2;
+        else if (va === 'bottom' || va === 'end') top += content.h - textH;
+        let align = String(t.align || 'left').toLowerCase();
+        if (align === 'middle') align = 'center';
+        let ax = content.x;
+        if (align === 'center') ax = content.x + content.w / 2;
+        else if (align === 'right' || align === 'end') { ax = content.x + content.w; align = 'right'; }
+        for (let i = 0; i < t.lines.length; i++) {
+          drawOneLine(t.lines[i], ax, top + i * t.lineHeight, t.ink, t.font, align);
+        }
+      } else if (node.type === 'divider') {
+        if (style.fill === undefined && style.background === undefined) {
+          fillRect(box.x, box.y, box.w, box.h, style.ink === undefined ? BLACK : style.ink);
+        }
+      }
+      layoutBorder(box, style);
+    }
+
+    function layoutNormalizeChildren(value) {
+      const out = [];
+      function add(v) {
+        if (v === null || v === undefined || v === false) return;
+        if (Array.isArray(v)) { for (const x of v) add(x); return; }
+        if (typeof v === 'string' || typeof v === 'number') { out.push({ type: 'text', value: String(v), style: {}, children: [] }); return; }
+        if (typeof v === 'boolean') return;
+        if (v && typeof v === 'object' && !v.type && v.text !== undefined) {
+          out.push({ type: 'text', value: String(v.text), style: v, children: [] });
+          return;
+        }
+        out.push(v);
+      }
+      add(value);
+      return out;
+    }
+
+    function uiView(direction, style, children) {
+      if (Array.isArray(style) || style === undefined || style === null) {
+        children = style;
+        style = {};
+      }
+      return { type: 'view', direction: direction, style: style || {}, children: layoutNormalizeChildren(children) };
+    }
+
+    function uiText(value, style) {
+      if (typeof style === 'string') style = { font: style };
+      else if (typeof style === 'number') style = { size: style };
+      return { type: 'text', value: String(value === undefined || value === null ? '' : value), style: style || {}, children: [] };
+    }
+
+    function uiSpacer(style) {
+      if (typeof style === 'number') style = { grow: style };
+      const s = { grow: 1 };
+      if (style) for (const k in style) s[k] = style[k];
+      return { type: 'spacer', style: s, children: [] };
+    }
+
+    function uiDivider(style) {
+      if (typeof style === 'number') style = { height: style };
+      const s = { height: 1, fill: BLACK };
+      if (style) for (const k in style) s[k] = style[k];
+      return { type: 'divider', style: s, children: [] };
+    }
+
+    const ui = {
+      column: function (style, children) { return uiView('column', style, children); },
+      row: function (style, children) { return uiView('row', style, children); },
+      view: function (style, children) { return uiView('column', style, children); },
+      text: uiText,
+      spacer: uiSpacer,
+      divider: uiDivider
+    };
+
+    function renderLayout(root) {
+      if (!root) return null;
+      if (typeof root === 'string' || typeof root === 'number') root = uiText(root, {});
+      if (Array.isArray(root)) root = uiView('column', {}, root);
+      const box = layoutArrange(root, 0, 0, w, h);
+      layoutPaint(box);
+      api.lastLayout = box;
+      return box;
+    }
+
     function font(sizeOrOptions, family) {
       return makeFont(sizeOrOptions, family);
     }
@@ -600,6 +1005,8 @@
       drawText: drawText,
       drawTextEx: drawTextEx,
       text: text,
+      ui: ui,
+      render: renderLayout,
       measure: measure,
       measureText: measureText,
       wrapText: wrapText,
@@ -611,6 +1018,7 @@
       getFont: function () { return currentFont; },
       fonts: FONTS,
       fontSizes: FONT_SIZES,
+      lastLayout: null,
       commit: commit,
       log: log,
       getBits: function () { return bits; },
@@ -957,6 +1365,37 @@ center("TOP", 8, 10, "sans");
 center("BOTTOM", H - 18, 10, "sans");
 center("T5 " + W + "x" + H, H / 2 - 8, land ? 16 : 9, "sans");
 center("1-bit BLE test", H / 2 + (land ? 14 : 12), 9, "mono");
+paper.commit();`
+    },
+    layout: {
+      name: '弹性布局 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var ui = paper.ui;
+paper.clear(C.white);
+paper.render(
+  ui.column({ padding: land ? 6 : 10, gap: land ? 4 : 6 }, [
+    ui.row({ justify: "between", align: "center" }, [
+      ui.text("AIRPAGE", { size: 10, font: "sans", weight: 700 }),
+      ui.text(land ? "LANDSCAPE" : "PORTRAIT", {
+        size: 8, font: "mono", padding: [1, 3], border: 1
+      })
+    ]),
+    ui.divider(),
+    ui.text("少算坐标", {
+      size: land ? 18 : 24, font: "sans", weight: 700, lineHeight: 1.15
+    }),
+    ui.text("用 column、row、gap 和 padding 描述界面，文字自动测量、换行。", {
+      size: land ? 10 : 12, font: "serif", lineHeight: land ? 1.3 : 1.5
+    }),
+    ui.spacer(),
+    ui.row({ justify: "between", align: "end" }, [
+      ui.text("— AirPage", { size: 9, font: "song" }),
+      ui.text("122 × 250", { size: 8, font: "mono", align: "right" })
+    ])
+  ])
+);
 paper.commit();`
     },
     hello: {

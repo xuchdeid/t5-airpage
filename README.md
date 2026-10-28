@@ -88,6 +88,7 @@ card is a JS sample:
 - 倒计时 — days/hours to a target date
 - 月相 — approximate illuminated moon and phase
 - 测试图 — grid, border, TOP/BOTTOM
+- 弹性布局 — column/row/gap/padding 排版示例
 - 基础图形 / 当前时间 / 点阵图案 — API examples
 
 Selecting a use case loads its source into the editor. It is intentionally
@@ -114,6 +115,45 @@ paper.commit();
   back to Canvas/Noto. `mono`/`kai` always use Canvas.
 - `drawText`, `drawTextEx`, `measureText` and `drawTextBox` remain as
   backward-compatible wrappers.
+
+### Layout
+
+`paper.ui` builds a small declarative tree; `paper.render` measures it and
+draws it. It is a flexbox subset, not a CSS engine:
+
+~~~js
+var ui = paper.ui;
+paper.clear(paper.colors.white);
+paper.render(
+  ui.column({ padding: 8, gap: 6 }, [
+    ui.row({ justify: "between", align: "center" }, [
+      ui.text("T5 AirPage", { size: 16, font: "sans", weight: 700 }),
+      ui.text("BLE", { size: 8, font: "mono", padding: [1, 3], border: 1 })
+    ]),
+    ui.divider(),
+    ui.text("不再手算坐标，文字会自动测量和换行。", {
+      size: 12, font: "serif", grow: 1
+    }),
+    ui.spacer(),
+    ui.text("122 × 250", { size: 8, font: "mono" })
+  ])
+);
+~~~
+
+- `ui.column` / `ui.row`: children are laid out on the main axis; `gap`
+  separates them, `justify` moves the group, `align` aligns the cross axis.
+- `ui.text`: auto width/height; `width`, `height`, `maxLines`, `ellipsis`,
+  `align` and `valign` constrain it. Text uses the same font options as
+  `paper.text`.
+- `ui.spacer`: grows into the free main-axis space. `ui.divider`: one-pixel rule.
+- `padding` / `margin`: number or `[vertical, horizontal]` / `[t, r, b, l]`.
+- `grow` / `shrink` / `basis`: flex sizing; `alignSelf` overrides the
+  container cross alignment.
+- `fill` (or `background`), `border` and `borderColor` paint the box.
+- `paper.render(tree)` fills the current 122×250 (or 250×122) canvas,
+  returns the layout tree, and stores it as `paper.lastLayout`. Call
+  `paper.clear` first; low-level drawing calls remain available for anything
+  the layout does not cover.
 - `paper.commit()` is a no-op in the simulator; the editor packs the buffer
   after the script returns.
 - Timers are no-ops. Each Run is one static frame.
