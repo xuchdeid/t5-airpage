@@ -841,7 +841,7 @@ function renderControls() {
     h += '<div class="row"><label>设备脚本（UTF-8，≤' + SCRIPT_MAX + ' B）</label><textarea id="deviceCode" class="code device-code" rows="10" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.deviceCode) + '</textarea></div>';
     h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span id="scriptBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
     h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button></div>';
-    h += '<p class="tiny">推送成功后设备会执行、刷新并保存到 NVS；失败会保留上一版。设备脚本最长 4096 B；运行已存不会重新发送源码。</p>';
+    h += '<p class="tiny">连接 T5 后按钮可用。推送成功后设备会执行、刷新并保存到 NVS；失败会保留上一版。设备脚本最长 4096 B；运行已存不会重新发送源码。</p>';
     h += '</details>';
     h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。布局：paper.ui.column / row / text / spacer / divider + paper.render，或 Frame 风格 paper.flex.render({x, y, w, h, children})；绘制：clear / setPixel / drawLine / fillRect / drawCircle / beginPath / commit；文字：font / text / measure / wrapText / textBox。上方脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
   }
