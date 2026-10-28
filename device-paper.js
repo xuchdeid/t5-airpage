@@ -232,20 +232,56 @@
   Paper.prototype.getBits = function () { return this.bits; };
 
   function maskCode(src) {
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
-      .replace(/\/\/[^\n\r]*/g, ' ')
-      .replace(/"(?:\\.|[^"\\])*"/g, '""')
-      .replace(/'(?:\\.|[^'\\])*'/g, "''");
+    var out = [];
+    var i = 0;
+    var n = src.length;
+    var bs = String.fromCharCode(92);
+    var nl = String.fromCharCode(10);
+    while (i < n) {
+      var c = src.charAt(i);
+      var d = src.charAt(i + 1);
+      if (c === '"' || c === "'") {
+        out.push(c);
+        i += 1;
+        while (i < n) {
+          var ch = src.charAt(i);
+          if (ch === bs) {
+            i += 2;
+          } else if (ch === c) {
+            out.push(c);
+            i += 1;
+            break;
+          } else if (src.charAt(i) === nl) {
+            break;
+          } else {
+            out.push(' ');
+            i += 1;
+          }
+        }
+      } else if (c === '/' && d === '/') {
+        i += 2;
+        while (i < n && src.charAt(i) !== nl) i += 1;
+        out.push(' ');
+      } else if (c === '/' && d === '*') {
+        i += 2;
+        while (i < n && !(src.charAt(i) === '*' && src.charAt(i + 1) === '/')) i += 1;
+        if (i < n) i += 2;
+        out.push(' ');
+      } else {
+        out.push(c);
+        i += 1;
+      }
+    }
+    return out.join('');
   }
 
   function sourceIssue(code) {
     var raw = String(code || '');
+    if (raw.indexOf(String.fromCharCode(96)) >= 0) return '设备不支持模板字符串';
     var src = maskCode(raw);
     if (!src.trim()) return '脚本为空';
     if (/(^|[^A-Za-z0-9_])(const|let|class)([^A-Za-z0-9_]|$)/.test(src)) return '设备只接受 ES5：请用 var/function，不要用 const/let/class';
     if (/=>/.test(src)) return '设备只接受 ES5：不要用箭头函数 =>';
-    if (src.indexOf(String.fromCharCode(96)) >= 0) return '设备不支持模板字符串';
     if (/\b(async|await)\b/.test(src)) return '设备不支持 async/await';
     if (/\b(function\s*\*)/.test(src)) return '设备不支持 generator';
     if (/\?\./.test(src)) return '设备不支持可选链 ?.';
