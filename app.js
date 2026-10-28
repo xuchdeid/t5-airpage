@@ -1015,8 +1015,10 @@ async function connect() {
   } catch (e) {
     console.warn(e);
     try { if (btDevice && btDevice.gatt.connected) btDevice.gatt.disconnect(); } catch (_) {}
+    ctrlChar = dataChar = infoChar = null;
+    btService = null; btServer = null; deviceSupportsScript = false;
     setStatus('连接失败：' + (e.message || e), 'bad');
-    setDot(''); btn.disabled = false;
+    setDot(''); btn.disabled = false; syncBtButtons();
   }
 }
 
