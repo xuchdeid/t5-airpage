@@ -40,20 +40,10 @@ const jsSavedExample = (() => {
 })();
 
 const state = {
-  template: 'quote',
+  template: 'daily',
   orientation: 'portrait',
   photo: null,
   caption: '',
-  quote: '把时间浪费在\n美好的事物上。',
-  quoteSize: 12,
-  quoteFont: 'serif',
-  author: '—— 约翰·列侬',
-  year: new Date().getFullYear(),
-  week: ['周一  深度工作', '周二  复盘与计划', '周三  写作', '周四  阅读', '周五  收尾', '周六  出门走走', '周日  留白'].join('\n'),
-  todo: ['回复邮件', '整理桌面', '读 20 页书', '散步 30 分钟', '写日记', '早点睡'].join('\n'),
-  countdownTitle: '下一次旅行',
-  countdownDate: (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0,10); })(),
-  moonDate: new Date().toISOString().slice(0,10),
   dither: 'fs',
   dailyDate: (() => {
     const d = new Date();
@@ -558,16 +548,9 @@ function refreshDailyMeta() {
 
 /* ---------- templates ---------- */
 const templates = {
-  photo:   { name: '照片', sub: 'Photo', icon: '▧', draw: drawPhoto },
-  quote:   { name: '文字海报', sub: 'Quote', icon: '❝', draw: drawQuote },
-  daily:   { name: '每日一句', sub: 'Daily', icon: '❞', draw: drawDaily },
-  year:    { name: '年度进度', sub: 'Year', icon: '◔', draw: drawYear },
-  week:    { name: '每周计划', sub: 'Week', icon: '▤', draw: drawWeek },
-  todo:    { name: '待办卡片', sub: 'To-do', icon: '☑', draw: drawTodo },
-  countdown:{ name: '倒计时', sub: 'Countdown', icon: '◷', draw: drawCountdown },
-  moon:    { name: '月相', sub: 'Moon', icon: '◐', draw: drawMoon },
-  test:    { name: '测试图', sub: 'Test', icon: '⌗', draw: drawTest },
-  js:      { name: 'JS 画布', sub: 'Script', icon: '⌨', draw: drawJS }
+  photo: { name: '照片', sub: 'Photo', icon: '▧', draw: drawPhoto },
+  daily: { name: '每日一句', sub: 'Daily', icon: '❞', draw: drawDaily },
+  js:    { name: 'JS 画布', sub: 'Cards / Script', icon: '⌨', draw: drawJS }
 };
 
 function drawPhoto(ctx) {
@@ -593,259 +576,7 @@ function drawPhoto(ctx) {
   }
 }
 
-function drawQuote(ctx) {
-  fillWhite(ctx);
-  ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(5, 5, W - 10, H - 10);
-  const body = state.quote.trim() || '写点什么';
-  const author = state.author.trim().slice(0, 20);
-  const size = FONT_SIZES.includes(Number(state.quoteSize)) ? Number(state.quoteSize) : 12;
-  const previousFont = activeFont;
-  activeFont = size >= 24 ? (state.quoteFont || 'serif') : 'serif';
-  const ascent = ascentFor(size);
-  const mark = Math.min(24, Math.max(12, size));
-  const authorSize = Math.min(12, Math.max(8, size));
-
-  if (state.orientation === 'portrait') {
-    text(ctx, '“', 10, 30, mark);
-    const lh = Math.max(10, Math.round(size * 1.3));
-    const top = 44, bottom = H - 32;
-    const maxLines = Math.max(1, Math.min(9, Math.floor((bottom - top) / lh)));
-    const lines = wrapText(body, W - 24, size).slice(0, maxLines);
-    const block = lines.length * lh;
-    let y = Math.max(top + ascent, top + (bottom - top - block) / 2 + ascent);
-    for (const line of lines) { text(ctx, line, 12, y, size); y += lh; }
-    if (author) text(ctx, author, 12, H - 18, authorSize);
-    hline(ctx, 12, 34, H - 28);
-  } else {
-    text(ctx, '“', 10, 28, mark);
-    const lh = Math.max(10, Math.round(size * 1.15));
-    const top = 44, bottom = H - 24;
-    const maxLines = Math.max(1, Math.min(4, Math.floor((bottom - top) / lh)));
-    const lines = wrapText(body, W - 26, size).slice(0, maxLines);
-    const block = lines.length * lh;
-    let y = Math.max(top + ascent, top + (bottom - top - block) / 2 + ascent);
-    for (const line of lines) { text(ctx, line, 12, y, size); y += lh; }
-    if (author) text(ctx, author, 12, H - 8, authorSize);
-    hline(ctx, 12, 34, H - 18);
-  }
-  activeFont = previousFont;
-}
-
-function drawYear(ctx) {
-  const year = Number(state.year) || new Date().getFullYear();
-  const now = new Date();
-  const start = new Date(year, 0, 1), end = new Date(year + 1, 0, 1);
-  const total = end - start;
-  const done = Math.min(Math.max(now - start, 0), total);
-  const pct = total > 0 ? done / total * 100 : 0;
-  const left = Math.max(0, Math.ceil((end - Math.max(now, start)) / 86400000));
-  fillWhite(ctx);
-
-  if (state.orientation === 'portrait') {
-    text(ctx, 'YEAR PROGRESS', W / 2, 20, 12, 'center');
-    text(ctx, Math.floor(pct) + '%', W / 2, 72, 48, 'center');
-    text(ctx, String(year), W / 2, 92, 12, 'center');
-    const bx = 14, by = 110, bw = W - 28, bh = 10;
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
-    ctx.fillStyle = '#000'; ctx.fillRect(bx + 2, by + 2, Math.max(0, (bw - 4) * pct / 100), bh - 4);
-    text(ctx, left + ' 天', W / 2, 150, 24, 'center');
-    text(ctx, '今年还剩', W / 2, 170, 12, 'center');
-    for (let i = 1; i < 12; i++) {
-      const x = 14 + (W - 28) * i / 12;
-      ctx.beginPath(); ctx.moveTo(x, 190); ctx.lineTo(x, i % 3 === 0 ? 200 : 195); ctx.stroke();
-    }
-    text(ctx, 'JFMAMJJASOND', W / 2, 216, 12, 'center');
-  } else {
-    text(ctx, 'YEAR', 12, 22, 24);
-    text(ctx, Math.floor(pct) + '%', 12, 72, 48);
-    text(ctx, String(year), 12, 92, 12);
-    const bx = 120, by = 28, bw = W - 132, bh = 8;
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
-    ctx.fillStyle = '#000'; ctx.fillRect(bx + 2, by + 2, Math.max(0, (bw - 4) * pct / 100), bh - 4);
-    text(ctx, left + ' 天', bx, 62, 24);
-    text(ctx, '今年还剩', bx, 82, 12);
-    for (let i = 1; i < 12; i++) {
-      const x = bx + bw * i / 12;
-      ctx.beginPath(); ctx.moveTo(x, 98); ctx.lineTo(x, i % 3 === 0 ? 106 : 102); ctx.stroke();
-    }
-    text(ctx, 'JFMAMJJASOND', bx, 118, 12);
-  }
-}
-
-function weekRows() {
-  return state.week.split('\n').slice(0, 7);
-}
-
-function drawWeek(ctx) {
-  fillWhite(ctx);
-  const monday = new Date(); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-  const range = fmtShort(monday) + ' — ' + fmtShort(sunday);
-  const rows = weekRows();
-  const days = ['一','二','三','四','五','六','日'];
-
-  if (state.orientation === 'portrait') {
-    text(ctx, 'WEEK', 10, 20, 24);
-    text(ctx, range, 10, 36, 12);
-    hline(ctx, 10, W - 10, 42);
-    const top = 52, rh = 27;
-    for (let i = 0; i < 7; i++) {
-      const y = top + i * rh;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(10, y, 9, 9);
-      text(ctx, days[i], 24, y + 9, 12);
-      const t = fitText((rows[i] || '').replace(/^周[一二三四五六日]\s*/, ''), W - 48, 12);
-      text(ctx, t, 38, y + 9, 12);
-      if (i < 6) hline(ctx, 10, W - 10, y + rh - 3);
-    }
-  } else {
-    text(ctx, 'WEEK', 10, 22, 24);
-    text(ctx, range, W - 10, 22, 12, 'right');
-    hline(ctx, 10, W - 10, 28);
-    for (let i = 0; i < 7; i++) {
-      const col = i < 4 ? 0 : 1;
-      const row = i < 4 ? i : i - 4;
-      const x = col ? 128 : 10;
-      const y = 40 + row * 21;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(x, y, 8, 8);
-      text(ctx, days[i], x + 13, y + 8, 12);
-      const t = fitText((rows[i] || '').replace(/^周[一二三四五六日]\s*/, ''), (col ? W - 128 : 118) - 36, 12);
-      text(ctx, t, x + 28, y + 8, 12);
-      if (row < 3) hline(ctx, x, x + (col ? W - 138 : 108), y + 19);
-    }
-  }
-}
-
-function drawTodo(ctx) {
-  fillWhite(ctx);
-  const rows = state.todo.split('\n').slice(0, 6);
-  const d = new Date();
-
-  if (state.orientation === 'portrait') {
-    text(ctx, 'TO DO', 10, 24, 24);
-    text(ctx, fmt(d), 10, 40, 12);
-    hline(ctx, 10, W - 10, 46);
-    for (let i = 0; i < 6; i++) {
-      const y = 56 + i * 31;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(10, y, 11, 11);
-      text(ctx, fitText(rows[i] || '', W - 38, 12), 27, y + 11, 12);
-      if (i < 5) hline(ctx, 10, W - 10, y + 27);
-    }
-  } else {
-    text(ctx, 'TO DO', 10, 24, 24);
-    text(ctx, fmt(d), 10, 40, 12);
-    hline(ctx, 10, W - 10, 46);
-    for (let i = 0; i < 6; i++) {
-      const col = i < 3 ? 0 : 1;
-      const row = i < 3 ? i : i - 3;
-      const x = col ? 128 : 10;
-      const y = 54 + row * 26;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(x, y, 9, 9);
-      text(ctx, fitText(rows[i] || '', (col ? W - 128 : 118) - 20, 12), x + 17, y + 10, 12);
-      if (row < 2) hline(ctx, x, x + (col ? W - 138 : 108), y + 23);
-    }
-  }
-}
-
-function drawCountdown(ctx) {
-  const target = new Date(state.countdownDate + 'T00:00:00');
-  const now = new Date();
-  let ms = target - now;
-  const done = ms <= 0;
-  if (done) ms = 0;
-  const days = Math.floor(ms / 86400000);
-  const hours = Math.floor(ms % 86400000 / 3600000);
-  const title = fitText(state.countdownTitle || '倒计时', state.orientation === 'landscape' ? 100 : W - 24, 12);
-  fillWhite(ctx);
-
-  if (state.orientation === 'portrait') {
-    text(ctx, 'COUNTDOWN', W / 2, 20, 12, 'center');
-    text(ctx, title, W / 2, 42, 12, 'center');
-    text(ctx, done ? '0' : String(days), W / 2, 92, 48, 'center');
-    text(ctx, done ? '已到达' : 'DAYS', W / 2, 110, 12, 'center');
-    hline(ctx, 24, W - 24, 126);
-    text(ctx, done ? '今天' : hours + ' 小时后', W / 2, 142, 12, 'center');
-    text(ctx, state.countdownDate, W / 2, 162, 12, 'center');
-    text(ctx, '把等待变成期待', W / 2, 192, 12, 'center');
-  } else {
-    text(ctx, 'COUNTDOWN', 10, 20, 12);
-    text(ctx, title, 10, 40, 12);
-    text(ctx, done ? '0' : String(days), 62, 88, 48, 'center');
-    text(ctx, done ? '已到达' : 'DAYS', 62, 106, 12, 'center');
-    ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(118, 18); ctx.lineTo(118, H - 12); ctx.stroke();
-    text(ctx, done ? '今天' : hours + ' 小时后', 130, 46, 12);
-    text(ctx, state.countdownDate, 130, 68, 12);
-    text(ctx, '把等待变成期待', 130, 94, 12);
-  }
-}
-
-function drawMoon(ctx) {
-  const d = new Date(state.moonDate + 'T12:00:00');
-  const phase = moonPhase(d);
-  fillWhite(ctx);
-  const landscape = state.orientation === 'landscape';
-  const cx = landscape ? 58 : W / 2;
-  const cy = landscape ? 68 : 100;
-  const r = landscape ? 38 : 42;
-
-  text(ctx, 'MOON PHASE', landscape ? 10 : W / 2, 18, 12, landscape ? 'left' : 'center');
-  const sunX = Math.sin(phase * Math.PI * 2);
-  const sunZ = -Math.cos(phase * Math.PI * 2);
-  ctx.fillStyle = '#000';
-  for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
-    for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-      const nx = (x + 0.5 - cx) / r, ny = (y + 0.5 - cy) / r;
-      const rr = nx * nx + ny * ny;
-      if (rr > 1) continue;
-      const nz = Math.sqrt(1 - rr);
-      if (nx * sunX + nz * sunZ > 0) ctx.fillRect(x, y, 1, 1);
-    }
-  }
-  ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-
-  const label = phase < 0.03 || phase > 0.97 ? '新月' : phase < 0.47 ? '上弦' : phase < 0.53 ? '满月' : '下弦';
-  const tx = landscape ? 108 : W / 2;
-  const align = landscape ? 'left' : 'center';
-  text(ctx, label, tx, landscape ? 58 : 174, 24, align);
-  text(ctx, fmt(d), tx, landscape ? 82 : 198, 12, align);
-  text(ctx, '抬头看看月亮', tx, landscape ? 106 : 220, 12, align);
-}
-
-function drawTest(ctx) {
-  fillWhite(ctx);
-  ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, W - 2, H - 2);
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 10; i++) {
-    const x = 6 + i * (W - 12) / 10, y = 6 + i * (H - 12) / 10;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-  const by = Math.round(H / 2) - 30;
-  ctx.fillStyle = '#fff'; ctx.fillRect(8, by, W - 16, 60);
-  ctx.strokeStyle = '#000'; ctx.strokeRect(8, by, W - 16, 60);
-  text(ctx, 'TOP', W / 2, 15, 12, 'center');
-  text(ctx, 'BOTTOM', W / 2, H - 4, 12, 'center');
-  text(ctx, 'T5 · ' + W + '×' + H, W / 2, H / 2 + 6, 24, 'center');
-  text(ctx, '1-bit BLE test', W / 2, H / 2 + 24, 12, 'center');
-  text(ctx, 'L', 6, H / 2, 12);
-  text(ctx, 'R', W - 6, H / 2, 12, 'right');
-}
-
 /* ---------- rendering ---------- */
-function fmt(d) {
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
-function fmtShort(d) {
-  return String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
-function moonPhase(date) {
-  const known = Date.UTC(2000, 0, 6, 18, 14);
-  const synodic = 29.53058867 * 86400000;
-  let p = ((date.getTime() - known) % synodic) / synodic;
-  if (p < 0) p += 1;
-  return p;
-}
-
 let packed = new Uint8Array(IMAGE_BYTES);
 let bits = new Uint8Array(W * H);
 
@@ -854,7 +585,7 @@ function render() {
   bctx.setTransform(1, 0, 0, 1, 0, 0);
   bctx.imageSmoothingEnabled = false;
   bctx.fillStyle = '#fff'; bctx.fillRect(0, 0, W, H);
-  (templates[state.template] || templates.quote).draw(bctx);
+  (templates[state.template] || templates.photo).draw(bctx);
   const img = bctx.getImageData(0, 0, W, H);
   const dither = state.template === 'photo' ? state.dither : 'threshold';
   bits = quantize(img, dither);
@@ -957,7 +688,12 @@ function tplList() {
     state.template = b.dataset.tpl;
     renderControls();
     syncTplButtons();
-    if (state.template === 'js') runJS(); else render();
+    if (state.template === 'js') {
+      runJS();
+    } else {
+      render();
+      setStatus(state.template === 'photo' ? '照片：选择图片后发送' : '每日一句：点“换一句”切换');
+    }
   });
 }
 function syncTplButtons() {
@@ -972,19 +708,6 @@ function renderControls() {
     h += '<div class="row"><label>图注（可选）</label><input id="caption" type="text" maxlength="18" value="' + esc(state.caption) + '"></div>';
     h += '<div class="row"><label>抖动</label><select id="dither"><option value="fs">Floyd–Steinberg（照片）</option><option value="bayer">Bayer（纹理）</option><option value="none">无（高对比）</option></select></div>';
     h += '<p class="tiny">原图只在本机 Canvas 里处理，不上传服务器。</p>';
-  } else if (state.template === 'quote') {
-    h += '<div class="row"><label>正文</label><textarea id="quote" maxlength="180">' + esc(state.quote) + '</textarea></div>';
-    h += '<div class="row"><label>正文字号</label><select id="quoteSize">' +
-      FONT_SIZES.map(s => '<option value="' + s + '">' + s + ' px</option>').join('') +
-      '</select></div>';
-    h += '<div class="row" id="quoteFontRow" style="display:' + (Number(state.quoteSize) >= 24 ? '' : 'none') + '">' +
-      '<label>字体（24px+）</label><select id="quoteFont">' +
-      '<option value="serif">宋体 · Noto Serif</option>' +
-      '<option value="sans"' + (sansReady ? '' : ' disabled') + '>黑体 · Noto Sans</option>' +
-      '<option value="pixel">点阵宋 · 24px 字模</option>' +
-      '</select></div>';
-    h += '<div class="row"><label>署名</label><input id="author" type="text" maxlength="20" value="' + esc(state.author) + '"></div>';
-    h += '<p class="tiny">8–32 px 可选；8/10/12 是 Fusion 三套独立字模，14/16 用文泉驿原生点阵宋，18 px 以上为实时轮廓字。24px 及以上可切换宋体、黑体或点阵宋。</p>';
   } else if (state.template === 'daily') {
     const info = dailyPick();
     h += '<div class="row"><label>日期</label><input id="dailyDate" type="date" value="' + esc(info.dateKey) + '"></div>';
@@ -996,31 +719,16 @@ function renderControls() {
     h += '<p class="tiny" id="dailyMeta">当前：第 ' + (info.index + 1) + ' / ' + DAILY_QUOTES.length +
       ' 句 · ' + esc(info.quote.author) + ' · ' + esc(info.dateKey) + '</p>';
     h += '<p class="tiny">本地语料，共 ' + DAILY_QUOTES.length + ' 句；按日期确定性选择，点按钮切换。不会联网，也不会上传文字。</p>';
-  } else if (state.template === 'year') {
-    h += '<div class="row"><label>年份</label><input id="year" type="number" min="2000" max="2100" value="' + state.year + '"></div>';
-    h += '<p class="tiny">按今天在这一年中的位置计算。</p>';
-  } else if (state.template === 'week') {
-    h += '<div class="row"><label>七行内容（周一到周日）</label><textarea id="week" rows="8">' + esc(state.week) + '</textarea></div>';
-    h += '<p class="tiny">每行一条，星期前缀可省略。横屏自动排成两列。</p>';
-  } else if (state.template === 'todo') {
-    h += '<div class="row"><label>待办（最多六条）</label><textarea id="todo" rows="7">' + esc(state.todo) + '</textarea></div>';
-  } else if (state.template === 'countdown') {
-    h += '<div class="row"><label>标题</label><input id="cdTitle" type="text" maxlength="16" value="' + esc(state.countdownTitle) + '"></div>';
-    h += '<div class="row"><label>日期</label><input id="cdDate" type="date" value="' + esc(state.countdownDate) + '"></div>';
-  } else if (state.template === 'moon') {
-    h += '<div class="row"><label>日期</label><input id="moonDate" type="date" value="' + esc(state.moonDate) + '"></div>';
-    h += '<p class="tiny">月相为近似计算，适合装饰，不用于天文观测。</p>';
   } else if (state.template === 'js') {
     const samples = (window.T5Paper && T5Paper.samples) || {};
-    h += '<div class="row"><label>示例</label><select id="jsExample">' +
+    h += '<p class="tiny">照片和每日一句是内置模板；其余用例都在这里，用 JS 画布实现。选一个用例，改代码，点 Run。</p>';
+    h += '<div class="row"><label>用例</label><select id="jsExample">' +
       Object.entries(samples).map(([k, s]) => '<option value="' + k + '">' + esc(s.name) + '</option>').join('') +
       '<option value="custom">自定义</option>' +
       '</select></div>';
     h += '<div class="row"><label>脚本</label><textarea id="jsCode" class="code" rows="15" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
     h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span class="tiny">Run 后预览，Send 发送</span></div>';
     h += '<p class="tiny">坐标系是当前画布：竖屏 122×250，横屏 250×122。API：paper.clear / setPixel / drawLine / fillRect / drawCircle / drawTextEx / beginPath / commit。脚本只在浏览器里执行，设备收到的是 4000 字节 1-bit 位图。脚本没有沙箱，死循环会卡住页面。</p>';
-  } else {
-    h += '<p class="tiny">测试边框、方向、清晰度和全刷效果。发送后看屏幕上的 TOP / BOTTOM。</p>';
   }
   c.innerHTML = h;
 
@@ -1029,36 +737,6 @@ function renderControls() {
     el.addEventListener('input', () => { state[key] = fn ? fn(el.value) : el.value; render(); });
   };
   bind('caption', 'caption');
-  bind('quote', 'quote');
-  const qs = $('#quoteSize');
-  const qf = $('#quoteFont');
-  const syncQuoteFont = () => {
-    const row = $('#quoteFontRow');
-    if (row) row.style.display = Number(state.quoteSize) >= 24 ? '' : 'none';
-  };
-  if (qs) {
-    qs.value = String(state.quoteSize);
-    qs.onchange = () => {
-      state.quoteSize = Number(qs.value) || 12;
-      syncQuoteFont();
-      render();
-    };
-    syncQuoteFont();
-  }
-  if (qf) {
-    qf.value = state.quoteFont;
-    qf.onchange = () => {
-      state.quoteFont = qf.value;
-      render();
-    };
-  }
-  bind('author', 'author');
-  bind('year', 'year', v => Number(v) || new Date().getFullYear());
-  bind('week', 'week');
-  bind('todo', 'todo');
-  bind('cdTitle', 'countdownTitle');
-  bind('cdDate', 'countdownDate');
-  bind('moonDate', 'moonDate');
   const dd = $('#dailyDate');
   if (dd) {
     dd.value = dailyPick().dateKey;

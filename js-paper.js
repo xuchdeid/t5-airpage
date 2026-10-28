@@ -340,70 +340,375 @@
   }
 
   const samples = {
-    hello: {
-      name: 'Hello · 基本图形',
-      code: [
-        'var C = paper.colors;',
-        'var W = paper.size.width, H = paper.size.height;',
-        'paper.clear(C.white);',
-        'paper.fillRect(0, 0, W, 8, C.black);',
-        'paper.drawTextEx(8, 22, "T5 AirPage", C.black, 20, "sans");',
-        'paper.drawTextEx(8, 48, "JS Lab", C.black, 12, "sans");',
-        'paper.drawLine(8, 70, W - 8, 70, C.black);',
-        'paper.fillCircle(30, 104, 18, C.black);',
-        'paper.drawCircle(74, 104, 18, C.black);',
-        'paper.drawRect(8, 138, W - 16, 34, C.black);',
-        'paper.drawTextEx(14, 148, "122 × 250 · 1-bit", C.black, 11, "sans");',
-        'paper.commit();'
-      ].join('\n')
-    },
     poster: {
-      name: '文字海报 · 中文',
-      code: [
-        'var C = paper.colors;',
-        'var W = paper.size.width, H = paper.size.height;',
-        'paper.clear(C.white);',
-        'paper.drawRect(5, 5, W - 10, H - 10, C.black);',
-        'paper.drawTextEx(10, 22, "“", C.black, 22, "serif");',
-        'paper.drawTextEx(12, 58, "慢一点，", C.black, 20, "song");',
-        'paper.drawTextEx(12, 86, "也是一种", C.black, 20, "song");',
-        'paper.drawTextEx(12, 114, "前进。", C.black, 20, "song");',
-        'paper.drawLine(12, H - 42, 38, H - 42, C.black);',
-        'paper.drawTextEx(12, H - 30, "—— 给今天", C.black, 11, "song");',
-        'paper.commit();'
-      ].join('\n')
+      name: '文字海报 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var m = land ? 8 : 7;
+var q = "把时间浪费在美好的事物上。";
+var size = land ? 18 : 22;
+var boxW = W - 2 * m - 16;
+var lines = [];
+var line = "";
+for (var i = 0; i < q.length; i++) {
+  var ch = q.charAt(i);
+  if (line && paper.measureText(line + ch, "song", size).width > boxW) {
+    lines.push(line);
+    line = ch;
+  } else {
+    line += ch;
+  }
+}
+if (line) lines.push(line);
+var lh = Math.round(size * 1.45);
+var footerY = H - (land ? 22 : 38);
+var bodyTop = land ? 34 : 52;
+var blockH = lines.length * lh;
+var y0 = bodyTop + Math.max(0, (footerY - 8 - bodyTop - blockH) / 2);
+paper.clear(C.white);
+paper.drawRect(m, m, W - 2 * m, H - 2 * m, C.black);
+paper.drawTextEx(m + 4, m + 2, "“", C.black, land ? 28 : 24, "serif");
+for (var j = 0; j < lines.length; j++) {
+  paper.drawTextEx(m + 8, y0 + j * lh, lines[j], C.black, size, "song");
+}
+paper.drawLine(m + 8, footerY - 8, m + 34, footerY - 8, C.black);
+paper.drawTextEx(m + 8, footerY - 6, "— AirPage", C.black, 9, "song");
+paper.commit();`
+    },
+    year: {
+      name: '年度进度 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var now = new Date();
+var y = now.getFullYear();
+var start = new Date(y, 0, 1);
+var end = new Date(y + 1, 0, 1);
+var pct = Math.max(0, Math.min(1, (now - start) / (end - start)));
+var days = Math.max(0, Math.ceil((end - now) / 86400000));
+var p = Math.floor(pct * 100);
+var m = land ? 9 : 10;
+paper.clear(C.white);
+paper.drawTextEx(m, 8, "YEAR " + y, C.black, 10, "mono");
+var ptxt = p + "%";
+var psize = land ? 44 : 52;
+while (psize > 24 && paper.measureText(ptxt, "mono", psize).width > W - 2 * m) psize -= 4;
+paper.drawTextEx(m, land ? 26 : 42, ptxt, C.black, psize, "mono");
+paper.drawTextEx(m, land ? 82 : 106, "今年已过", C.black, 10, "sans");
+var by = land ? 94 : 152;
+var bw = W - 2 * m, bh = 8;
+paper.drawRect(m, by, bw, bh, C.black);
+paper.fillRect(m + 2, by + 2, Math.max(0, (bw - 4) * pct), bh - 4, C.black);
+paper.drawTextEx(m, by + 12, "还剩 " + days + " 天", C.black, 10, "sans");
+if (!land) {
+  for (var i = 1; i < 12; i++) {
+    var x = m + bw * i / 12;
+    paper.drawLine(x, 190, x, i % 3 === 0 ? 198 : 194, C.black);
+  }
+  paper.drawTextEx(m, 208, "JFMAMJJASOND", C.black, 8, "mono");
+}
+paper.commit();`
+    },
+    week: {
+      name: '每周计划 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var m = 8;
+var days = ["一", "二", "三", "四", "五", "六", "日"];
+var tasks = ["晨间计划", "深度工作", "运动 30 分钟", "阅读 20 页", "复盘", "留白", "休息"];
+var now = new Date();
+var mon = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+var sun = new Date(mon);
+sun.setDate(mon.getDate() + 6);
+function p2(n) { return (n < 10 ? "0" : "") + n; }
+var range = p2(mon.getMonth() + 1) + "." + p2(mon.getDate()) + "—" + p2(sun.getMonth() + 1) + "." + p2(sun.getDate());
+function right(t, y, size, font) {
+  var tw = paper.measureText(t, font, size).width;
+  paper.drawTextEx(W - m - tw, y, t, C.black, size, font);
+}
+function fit(t, max, size, font) {
+  if (paper.measureText(t, font, size).width <= max) return t;
+  while (t.length > 1 && paper.measureText(t + "…", font, size).width > max) t = t.slice(0, -1);
+  return t + "…";
+}
+paper.clear(C.white);
+paper.drawTextEx(m, 8, "WEEK", C.black, land ? 16 : 20, "sans");
+right(range, land ? 10 : 34, 9, "mono");
+var lineY = land ? 32 : 48;
+paper.drawLine(m, lineY, W - m, lineY, C.black);
+if (land) {
+  paper.drawLine(124, 36, 124, H - 10, C.black);
+  for (var i = 0; i < 7; i++) {
+    var col = i < 4 ? 0 : 1;
+    var row = i < 4 ? i : i - 4;
+    var x = col ? 130 : m;
+    var y = 40 + row * 20;
+    var box = 7;
+    paper.drawRect(x, y + 1, box, box, C.black);
+    paper.drawTextEx(x + box + 4, y, days[i], C.black, 9, "sans");
+    var tx = x + box + 17;
+    paper.drawTextEx(tx, y, fit(tasks[i], (col ? W - m : 120) - tx, 9, "song"), C.black, 9, "song");
+  }
+} else {
+  var top = 54;
+  var bottom = H - 8;
+  var rh = (bottom - top) / 7;
+  var box = 9;
+  for (var i = 0; i < 7; i++) {
+    var y = top + i * rh;
+    paper.drawRect(m, y + 2, box, box, C.black);
+    paper.drawTextEx(m + box + 5, y + 1, days[i], C.black, 12, "sans");
+    var tx = m + box + 18;
+    paper.drawTextEx(tx, y + 1, fit(tasks[i], W - m - tx, 12, "song"), C.black, 12, "song");
+    if (i < 6) {
+      var sy = Math.round(y + rh) - 1;
+      paper.drawLine(m, sy, W - m, sy, C.black);
+    }
+  }
+}
+paper.commit();`
+    },
+    todo: {
+      name: '待办清单 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var m = 8;
+var items = [
+  ["回复邮件", true],
+  ["整理桌面", false],
+  ["读 20 页书", false],
+  ["散步 30 分钟", true],
+  ["写日记", false],
+  ["早点睡", false]
+];
+var done = 0;
+for (var d = 0; d < items.length; d++) if (items[d][1]) done++;
+function p2(n) { return (n < 10 ? "0" : "") + n; }
+var now = new Date();
+var date = now.getFullYear() + "-" + p2(now.getMonth() + 1) + "-" + p2(now.getDate());
+function right(t, y, size, font) {
+  var tw = paper.measureText(t, font, size).width;
+  paper.drawTextEx(W - m - tw, y, t, C.black, size, font);
+}
+function fit(t, max, size, font) {
+  if (paper.measureText(t, font, size).width <= max) return t;
+  while (t.length > 1 && paper.measureText(t + "…", font, size).width > max) t = t.slice(0, -1);
+  return t + "…";
+}
+paper.clear(C.white);
+paper.drawTextEx(m, 8, "TO DO", C.black, land ? 18 : 20, "sans");
+if (land) right(date, 10, 9, "mono");
+else paper.drawTextEx(m, 34, date, C.black, 9, "mono");
+paper.drawLine(m, land ? 32 : 48, W - m, land ? 32 : 48, C.black);
+if (land) {
+  for (var i = 0; i < 6; i++) {
+    var col = i < 3 ? 0 : 1;
+    var row = i < 3 ? i : i - 3;
+    var x = col ? 128 : m;
+    var y = 38 + row * 24;
+    var box = 8;
+    paper.drawRect(x, y, box, box, C.black);
+    if (items[i][1]) {
+      paper.drawLine(x + 2, y + 4, x + 4, y + 7, C.black);
+      paper.drawLine(x + 4, y + 7, x + 8, y + 2, C.black);
+    }
+    var max = (col ? W - x : 120 - x) - 14;
+    paper.drawTextEx(x + 12, y, fit(items[i][0], max, 9, "song"), C.black, 9, "song");
+  }
+} else {
+  for (var i = 0; i < 6; i++) {
+    var y = 56 + i * 30;
+    paper.drawRect(10, y, 10, 10, C.black);
+    if (items[i][1]) {
+      paper.drawLine(12, y + 5, 14, y + 8, C.black);
+      paper.drawLine(14, y + 8, 19, y + 2, C.black);
+    }
+    paper.drawTextEx(26, y, fit(items[i][0], W - 34, 12, "song"), C.black, 12, "song");
+    if (i < 5) paper.drawLine(10, y + 27, W - 10, y + 27, C.black);
+  }
+}
+paper.commit();`
+    },
+    countdown: {
+      name: '倒计时 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var target = new Date(2027, 0, 1);
+var now = new Date();
+var ms = target - now;
+var done = ms <= 0;
+if (done) ms = 0;
+var days = Math.floor(ms / 86400000);
+var hours = Math.floor((ms % 86400000) / 3600000);
+function p2(n) { return (n < 10 ? "0" : "") + n; }
+var date = target.getFullYear() + "-" + p2(target.getMonth() + 1) + "-" + p2(target.getDate());
+function center(t, y, size, font) {
+  var tw = paper.measureText(t, font, size).width;
+  paper.drawTextEx((W - tw) / 2, y, t, C.black, size, font);
+}
+paper.clear(C.white);
+if (land) {
+  paper.drawTextEx(8, 8, "COUNTDOWN", C.black, 10, "sans");
+  paper.drawTextEx(8, 20, "NEW YEAR", C.black, 12, "song");
+  paper.drawTextEx(8, 36, done ? "0" : String(days), C.black, 40, "mono");
+  paper.drawTextEx(8, 88, "DAYS", C.black, 10, "sans");
+  paper.drawLine(120, 14, 120, H - 12, C.black);
+  paper.drawTextEx(132, 34, date, C.black, 10, "mono");
+  paper.drawTextEx(132, 56, done ? "已到达" : hours + " 小时后", C.black, 10, "sans");
+  paper.drawTextEx(132, 80, "把等待变成期待", C.black, 10, "song");
+} else {
+  center("COUNTDOWN", 16, 10, "sans");
+  center("NEW YEAR", 32, 12, "song");
+  center(done ? "0" : String(days), 70, 56, "mono");
+  center("DAYS", 144, 10, "sans");
+  paper.drawLine(24, 158, W - 24, 158, C.black);
+  center(date, 174, 10, "mono");
+  center(done ? "已到达" : hours + " 小时后", 194, 10, "sans");
+  center("把等待变成期待", 214, 10, "song");
+}
+paper.commit();`
+    },
+    moon: {
+      name: '月相 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var known = Date.UTC(2000, 0, 6, 18, 14);
+var syn = 29.53058867 * 86400000;
+var now = new Date();
+var p = ((now.getTime() - known) % syn) / syn;
+if (p < 0) p += 1;
+var cx = land ? 56 : W / 2;
+var cy = land ? 64 : 108;
+var r = land ? 34 : 42;
+var sunX = Math.sin(p * Math.PI * 2);
+var sunZ = -Math.cos(p * Math.PI * 2);
+paper.clear(C.white);
+paper.drawTextEx(8, 8, "MOON PHASE", C.black, 10, "sans");
+for (var y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+  for (var x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+    var nx = (x + 0.5 - cx) / r;
+    var ny = (y + 0.5 - cy) / r;
+    var rr = nx * nx + ny * ny;
+    if (rr > 1) continue;
+    var nz = Math.sqrt(1 - rr);
+    if (nx * sunX + nz * sunZ > 0) paper.setPixel(x, y, C.black);
+  }
+}
+paper.drawCircle(cx, cy, r, C.black);
+var label = (p < 0.03 || p > 0.97) ? "新月" : (p < 0.47 ? "上弦" : (p < 0.53 ? "满月" : "下弦"));
+function p2(n) { return (n < 10 ? "0" : "") + n; }
+var date = now.getFullYear() + "-" + p2(now.getMonth() + 1) + "-" + p2(now.getDate());
+if (land) {
+  paper.drawTextEx(104, 36, label, C.black, 24, "song");
+  paper.drawTextEx(104, 62, date, C.black, 10, "mono");
+  paper.drawTextEx(104, 86, "抬头看看月亮", C.black, 10, "song");
+} else {
+  function center(t, y, size, font) {
+    var tw = paper.measureText(t, font, size).width;
+    paper.drawTextEx((W - tw) / 2, y, t, C.black, size, font);
+  }
+  center(label, 174, 24, "song");
+  center(date, 198, 10, "mono");
+  center("抬头看看月亮", 220, 10, "song");
+}
+paper.commit();`
+    },
+    test: {
+      name: '测试图 · JS',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+function center(t, y, size, font) {
+  var tw = paper.measureText(t, font, size).width;
+  paper.drawTextEx((W - tw) / 2, y, t, C.black, size, font);
+}
+paper.clear(C.white);
+paper.drawRect(1, 1, W - 2, H - 2, C.black);
+paper.drawRect(2, 2, W - 4, H - 4, C.black);
+for (var i = 0; i <= 10; i++) {
+  var x = 6 + i * (W - 12) / 10;
+  var y = 6 + i * (H - 12) / 10;
+  paper.drawLine(x, 4, x, H - 4, C.black);
+  paper.drawLine(4, y, W - 4, y, C.black);
+}
+var bh = land ? 48 : 56;
+var by = Math.round(H / 2) - (land ? 24 : 28);
+paper.fillRect(8, by, W - 16, bh, C.white);
+paper.drawRect(8, by, W - 16, bh, C.black);
+center("TOP", 8, 10, "sans");
+center("BOTTOM", H - 18, 10, "sans");
+center("T5 " + W + "x" + H, H / 2 - 8, land ? 16 : 9, "sans");
+center("1-bit BLE test", H / 2 + (land ? 14 : 12), 9, "mono");
+paper.commit();`
+    },
+    hello: {
+      name: '基础图形',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+paper.clear(C.white);
+paper.fillRect(0, 0, W, 6, C.black);
+paper.drawTextEx(8, land ? 14 : 18, "T5 AirPage", C.black, land ? 18 : 20, "sans");
+paper.drawTextEx(8, land ? 38 : 44, "JS canvas", C.black, 10, "sans");
+var lineY = land ? 52 : 60;
+paper.drawLine(8, lineY, W - 8, lineY, C.black);
+var cy = land ? 72 : 98;
+var r = land ? 10 : 18;
+paper.fillCircle(30, cy, r, C.black);
+paper.drawCircle(74, cy, r, C.black);
+var by = land ? H - 30 : H - 44;
+var bh = land ? 22 : 30;
+paper.drawRect(8, by, W - 16, bh, C.black);
+if (land) {
+  paper.drawTextEx(14, by + 6, "122 × 250 · 1-bit", C.black, 8, "mono");
+} else {
+  paper.drawTextEx(14, by + 3, "122 × 250", C.black, 9, "mono");
+  paper.drawTextEx(14, by + 15, "1-bit", C.black, 8, "mono");
+}
+paper.commit();`
     },
     clock: {
-      name: '时钟 · 当前时间',
-      code: [
-        'var C = paper.colors;',
-        'var W = paper.size.width, H = paper.size.height;',
-        'var now = new Date();',
-        'function p2(n) { return (n < 10 ? "0" : "") + n; }',
-        'paper.clear(C.white);',
-        'paper.drawTextEx(8, 12, "T5", C.black, 12, "sans");',
-        'paper.drawLine(8, 30, W - 8, 30, C.black);',
-        'paper.drawTextEx(8, 54, p2(now.getHours()) + ":" + p2(now.getMinutes()), C.black, 40, "mono");',
-        'paper.drawTextEx(8, 112, now.getFullYear() + "-" + p2(now.getMonth() + 1) + "-" + p2(now.getDate()), C.black, 12, "mono");',
-        'paper.drawTextEx(8, 136, "静态快照 · 点击 Run 更新", C.black, 11, "sans");',
-        'paper.commit();'
-      ].join('\n')
+      name: '当前时间',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+var land = W > H;
+var now = new Date();
+function p2(n) { return (n < 10 ? "0" : "") + n; }
+var hhmm = p2(now.getHours()) + ":" + p2(now.getMinutes());
+var date = now.getFullYear() + "-" + p2(now.getMonth() + 1) + "-" + p2(now.getDate());
+paper.clear(C.white);
+paper.drawTextEx(8, 8, "LOCAL TIME", C.black, 10, "sans");
+paper.drawLine(8, 24, W - 8, 24, C.black);
+if (land) {
+  paper.drawTextEx(8, 34, hhmm, C.black, 40, "mono");
+  paper.drawTextEx(8, 92, date, C.black, 10, "mono");
+  paper.drawTextEx(8, 108, "静态快照 · Run 更新", C.black, 9, "sans");
+} else {
+  paper.drawTextEx(8, 48, hhmm, C.black, 32, "mono");
+  paper.drawTextEx(8, 100, date, C.black, 10, "mono");
+  paper.drawTextEx(8, 122, "静态快照 · Run 更新", C.black, 9, "sans");
+}
+paper.commit();`
     },
     pattern: {
-      name: '点阵 · 图案',
-      code: [
-        'var C = paper.colors;',
-        'var W = paper.size.width, H = paper.size.height;',
-        'paper.clear(C.white);',
-        'for (var y = 0; y < H; y += 8) {',
-        '  for (var x = 0; x < W; x += 8) {',
-        '    if (((x / 8) + (y / 8)) % 2 === 0) paper.fillRect(x, y, 4, 4, C.black);',
-        '  }',
-        '}',
-        'paper.fillRect(0, 0, W, 6, C.black);',
-        'paper.drawTextEx(8, H - 24, "1-bit pattern", C.black, 11, "mono");',
-        'paper.commit();'
-      ].join('\n')
+      name: '点阵图案',
+      code: `var C = paper.colors;
+var W = paper.size.width, H = paper.size.height;
+paper.clear(C.white);
+for (var y = 0; y < H; y += 8) {
+  for (var x = 0; x < W; x += 8) {
+    if (((x / 8) + (y / 8)) % 2 === 0) paper.fillRect(x, y, 4, 4, C.black);
+  }
+}
+paper.fillRect(0, 0, W, 6, C.black);
+paper.drawTextEx(8, H - 24, "1-bit pattern", C.black, 11, "mono");
+paper.commit();`
     }
   };
 

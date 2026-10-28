@@ -48,13 +48,15 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
   target size. This includes 24 and 48; neither is a bitmap scaled up or down.
 - Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
   they fall back to the integer-scaled 12 px master.
-- 24 px and above font menu: Noto Serif SC, Noto Sans SC, or the ISCAS 24 px
-  bitmap (native at 24, scaled at 26/28/30/32).
+- 24 px and above font choice: a JS sample can ask `drawTextEx` for Noto Serif
+  SC, Noto Sans SC, or the ISCAS 24 px bitmap (native at 24, scaled at
+  26/28/30/32).
 - 24 px Song: web/fonts/song24.png + song24.json remains only as a fallback for
   rare glyphs outside the Noto subset.
 
-The quote template exposes the full 8–32 px body-size selector. Do not switch the
-canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
+The built-in 每日一句 card auto-fits 10–24 px; the JS 文字海报 sample uses 22 px in
+portrait and 18 px in landscape. Do not switch the canvas back to system fonts:
+anti-aliased Chinese loses strokes at this resolution.
 
 WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
 fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Noto Serif SC is SIL OFL; see
@@ -76,7 +78,20 @@ request is made when it renders.
 ## JS 画布
 
 JS 画布 adds a code editor and a browser-side `paper.*` implementation for
-the 122×250 1-bit panel. It is intentionally independent of QuickJS:
+the 122×250 1-bit panel. The sidebar has only 照片, 每日一句 and JS 画布; every other
+card is a JS sample:
+
+- 文字海报 — quote, frame, byline
+- 年度进度 — year percentage and days left
+- 每周计划 — seven rows; two columns in landscape
+- 待办 — checkboxes; two columns in landscape
+- 倒计时 — days/hours to a target date
+- 月相 — approximate illuminated moon and phase
+- 测试图 — grid, border, TOP/BOTTOM
+- 基础图形 / 当前时间 / 点阵图案 — API examples
+
+Selecting a use case loads its source into the editor. It is intentionally
+independent of QuickJS:
 
 ~~~js
 var C = paper.colors;
@@ -113,9 +128,9 @@ the script itself is not uploaded to the T5 in this phase.
 
 - index.html — layout, orientation switch
 - style.css — responsive UI
-- app.js — pixel-font rendering, 1-bit packing, CRC32, GATT client
+- app.js — built-in photo/daily rendering, 1-bit packing, CRC32, GATT client
 - quotes.js — local quote corpus for 每日一句
-- js-paper.js — browser-side 1-bit `paper.*` API used by JS 画布
+- js-paper.js — browser-side 1-bit `paper.*` API and all JS card samples
 - fonts/fusion-pixel-8px.woff2 — 8 px pixel font
 - fonts/fusion-pixel-10px.woff2 — 10 px pixel font
 - fonts/fusion-pixel-12px.woff2 — 12 px pixel font
