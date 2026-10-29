@@ -34,6 +34,14 @@ const jsSavedCode = (() => {
   try {
     let saved = localStorage.getItem('t5.device.js');
     if (saved === null) saved = localStorage.getItem('t5.device.code');
+    // The old 24 px default was 358 B.  Do not carry its 24 px coordinates
+    // into the 12 px editor; real custom scripts are left untouched.
+    if (saved !== null && saved.indexOf('paper.text(M, 52') >= 0 &&
+        new TextEncoder().encode(saved).length === 358) {
+      saved = null;
+      localStorage.removeItem('t5.device.js');
+      localStorage.removeItem('t5.device.code');
+    }
     if (saved !== null) return saved;
   } catch (e) {}
   return (window.T5Paper && T5Paper.samples.hello.code) || DEVICE_SCRIPT_DEFAULT;
