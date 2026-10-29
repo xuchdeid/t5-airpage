@@ -1,162 +1,567 @@
-# AirPage BLE editor
+# eink-mini — T5 V2.3 AirPage (BLE only)
 
-Static Web Bluetooth client for the T5 V2.3 (122×250 1-bit panel).
+A LilyGO / TTGO T5 V2.3 2.13" e-paper badge. The current firmware is
+**AirPage-only**: no WiFi, no clock, no file server. The board advertises over BLE
+immediately, receives a 1-bit 122×250 image or a small ES5 layout source from a
+phone/desktop browser, renders it, and keeps the last image and source in NVS.
 
-## Local test
+## Hardware
+
+| Item | Value |
+| --- | --- |
+| MCU | ESP32-D0WDQ6 rev1.0, dual core 240 MHz |
+| Flash | 4 MB (W25Q32), no PSRAM |
+| Panel | 2.13" mono, 122×250 visible (128×250 controller RAM), SPI, black/white only |
+| Radio | 2.4 GHz WiFi + Bluetooth 4.2 BR/EDR + BLE (shared antenna) |
+| USB bridge | CP2104 (VID:PID 10C4:EA60) |
+| Storage | microSD (unused by this build) |
+| Buttons | BOOT=GPIO0, user=GPIO39, RST |
+
+## Pin map
+
+| Function | GPIO |
+| --- | --- |
+| EPD BUSY | 4 |
+| EPD RST | 16 |
+| EPD DC | 17 |
+| EPD CS | 5 |
+| EPD SCLK | 18 |
+| EPD MOSI | 23 |
+| EPD MISO | not connected |
+| SD SCK / MISO / MOSI / CS | 14 / 2 / 15 / 13 |
+| Battery ADC | 35 |
+| BOOT / user button | 0 / 39 |
+
+## Build and flash
+
+The working panel driver is GxEPD2_213_B73 (SSD1675B). The stock panel marking says
+GDEH0213B72B, but its command set is SSD1675; t5_b72 (IL3897) never refreshes.
 
 ~~~bash
-cd web
-python3 -m http.server 8000
-# open http://localhost:8000
+cd /Users/chengxu/dev/koalcat/ai/eink-mini
+pio run -e t5_b73 -t upload --upload-port /dev/cu.usbserial-01C8A520
+pio device monitor -p /dev/cu.usbserial-01C8A520 -b 115200
 ~~~
 
-Web Bluetooth requires a secure context. localhost is accepted on the same
-machine; a phone must use HTTPS. The cert.pem/key.pem files are only for a local
-self-signed test and are ignored by git.
+t5_ble_auto is kept as an alias for old scripts; the normal build is already BLE-only.
 
-## Deploy
+## Device behavior
 
-Published copy: <https://xuchdeid.github.io/t5-airpage/> (GitHub Pages, repository
-xuchdeid/t5-airpage, branch main). Push this directory's files, including fonts/,
-to that repository to update it.
+1. Power on. If NVS has a stored image it is displayed; otherwise the screen shows a
+   QR code and the BLE name (T5-6F24).
+2. BLE GATT starts immediately; there is no button press needed to enter BLE mode,
+   and no 10-minute timeout.
+3. Short-press GPIO39 toggles between the QR screen and the last image.
+4. Hold GPIO39 for 3 s to erase the stored image/script and restart (next boot shows QR).
+5. The last 4,000-byte image and (when uploaded) up to 4096-byte script source are
+   stored in NVS namespace airpage and survive reset.
 
-To use a different HTTPS static host, upload index.html, style.css, app.js,
-quotes.js, device-paper.js and the fonts/ directory. No server code, build step, or cloud API is needed. Then set
-EDITOR_URL in src/main.cpp to that URL and rebuild; the device QR points at it.
+Serial commands: q = QR screen, i = show image, j = run the 12 px ES5 probe,
+s = run the stored script, r = restart, ? = status.
 
-The QR uses version 4 / ECC low, so keep the URL short (roughly 78 bytes). A longer
-URL needs a larger QR version and a smaller module scale in showQrScreen().
+### Device-side ES5 layout with 12 px Chinese atlas (experimental)
 
-## Orientation
+The 4,000-byte BLE bitmap path is unchanged. A MicroQuickJS runtime and a
+1-bit 12 px Chinese atlas are linked in. The runtime can be triggered by serial
+'j' (built-in probe), serial 's' (NVS-stored source), or a BLE SCRIPT package;
+BLE image transfer still uses 4,000-byte 1-bit images.
 
-- Portrait: 122×250, sent as-is.
-- Landscape: 250×122, laid out horizontally and rotated 90° clockwise into the
-  portrait transport buffer. Rotate the device clockwise to view it.
-- JS 画布 is always portrait 122×250; its landscape button is disabled.
+'j' creates a **32 KB** JS context, loads a 31,345-glyph atlas from flash, executes
+an ES5 card (header, wrapped quote, byline, footer), and prints:
 
-## Pixel font
+~~~text
+JSLAYOUT before free=... min=... largest=...
+FONT12 glyphs=31345 cell=12x13 baseline=11 line=13 bytes=1065746
+LAYOUT lines=2 chars=12
+PAPER hash=edb101dc
+JSLAYOUT dump ...
+heap size=11400/32396
+JSLAYOUT result ok=1 eval_us=33347 total_us=76693 hash=edb101dc
+JSLAYOUT after free=... min=... largest=...
+~~~
 
-Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
-(plus 48 px for the fixed year/countdown number slots):
+The card in the current probe is:
 
-- 8/10/12 px: three independent Fusion Pixel designs
-  (fusion-pixel-8px.woff2, -10px, -12px; SIL OFL), rasterised and thresholded
-  to 1-bit.
-- 14/16 px Chinese: native WenQuanYi Bitmap Song atlases (wqy14.png/json,
-  wqy16.png/json), rasterised from the 13px and 12pt PCF strikes.
-- 18/20/22/24/26/28/30/32/48 px Chinese: web/fonts/noto-serif-sc.woff2, a
-  GB2312 subset of Noto Serif SC, rendered and thresholded separately at each
-  target size. This includes 24 and 48; neither is a bitmap scaled up or down.
-- Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
-  they fall back to the integer-scaled 12 px master.
-- JS 画布: the firmware 12 px atlas (device12.png/json) only; the device
-  ignores the scale argument and has no font families.
+~~~text
+每日一句
+知是行之始，
+行是知之成。
+王阳明
+AirPage
+~~~
 
-The built-in 每日一句 card auto-fits 10–24 px. JS 画布 is fixed to the device
-12 px atlas, so its preview and the panel match exactly. Do not switch the
-canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
+Measured on this unit with BLE active:
 
-WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
-fonts/WQY-COPYING, WQY-AUTHORS and WQY-SOURCE.txt. Noto Serif SC is SIL OFL; see
-fonts/NOTO-OFL.txt and NOTO-SOURCE.txt. Fusion Pixel is SIL OFL; ISCAS Song is
-under its permissive license.
+| Item | Value |
+|---|---:|
+| 32 KB context capacity | 32,396 B |
+| 12 px atlas | 1,065,746 B in flash |
+| JS heap used by layout script | 11,400 B |
+| JS heap free | 20,996 B |
+| Lowest free heap during run | 83,876 B |
+| Peak heap drop during run | 33,080 B |
+| JS eval | 33.3 ms |
+| JS context + eval + dump + free | 76.7 ms |
+| Panel update (_Update_Full) | 3.87 s |
+| Include power on/off | 4.20 s |
+| Flash | 2,324,869 B (73.9%) |
+| RAM | 55,580 B (17.0%) |
 
-## 每日一句
+The atlas (src/font12_atlas.c, generated by tools/build_font12.py) uses a
+16-byte T5F1 header, 8-byte cmap entries (codepoint, gid, advance, xoff) and
+1-bit coverage. It contains 31,345 glyphs: gid 0 is a hollow tofu box; the full
+Fusion Pixel 12 px cmap, including ASCII and the common CJK ranges. This is not
+a quote-only subset, so arbitrary Chinese mostly renders. A codepoint absent
+from Fusion Pixel still uses the tofu glyph.
 
-每日一句 is a local daily-quote card. The 77-entry corpus is in quotes.js; no
-request is made when it renders.
+Font metrics are cell 12x13, baseline 11, line height 13, stride 2, threshold
+128, rasterised from web/fonts/fusion-pixel-12px.woff2 (SIL OFL). At 12 px a
+122 px line holds about ten full-width Chinese characters. paper.text keeps its
+five-argument signature, but scale is ignored because there is one 12 px slot;
+textWidth uses the per-glyph advance and lineHeight returns 13.
 
-- The date is hashed to a starting index, so the same date is stable.
-- 上一句 / 换一句 adjust an offset in memory.
-- 今天 resets to the browser's local date and index 0.
-- The date picker lets you preview other days.
-- The card auto-fits a native size from 10 to 24 px; long quotes do not clip.
-- Portrait is 122×250 and landscape is 250×122, like the other templates.
+Regenerate with:
 
-## JS 画布（设备模拟器）
+~~~sh
+python3 tools/build_font12.py
+python3 tools/export_device_font.py
+~~~
 
-The browser and the T5 now run the same API. JS 画布 loads the firmware's
-exported 12 px atlas and draws into a fixed 122×250 1-bit framebuffer with
-stride 16. The preview is packed exactly like the image transport; the same
-source can be sent as a bitmap, or pushed as source and run by the T5.
+The generator needs fontTools and Pillow. The atlas is 1,065,746 B in flash and
+the generated C literal is about 6.4 MiB. The previous 24 px Noto subset
+(73,444 B) was replaced because its 633-glyph coverage was too small. The full
+12 px atlas leaves the app at 2,324,869 B of the 3 MiB huge_app partition; a
+full 20k-character 24 px set would have been about 1.4 MB and did not leave
+room for the rest of the firmware.
 
-The editor has one source and one Run button. The separate ES5 panel is gone.
-连接后 push uses control 0x10/0x12; 运行已存 uses 0x13.
+After 'j', send 'i' to restore the stored bitmap (verified). BLE image transfer
+is still the production fallback and is not affected by the probe.
 
-API (nothing else exists on the device):
+## BLE protocol
 
-    paper.width()                 // 122
-    paper.height()                // 250
-    paper.clear(black)            // default 0 = white
-    paper.setPixel(x, y, black)   // default black 1; clipped
-    paper.fillRect(x, y, w, h, black)
-    paper.text(x, y, text, scale, black)
-    paper.textWidth(text, scale)
-    paper.lineHeight(scale)       // 13
-    paper.commit()                // returns FNV-1a hash
+| Role | UUID |
+| --- | --- |
+| service | 5f9b0001-7a6b-4c2d-9e8f-1234567890ab |
+| control (write + notify) | 5f9b0002-7a6b-4c2d-9e8f-1234567890ab |
+| data (write / write-no-response) | 5f9b0003-7a6b-4c2d-9e8f-1234567890ab |
+| info (read) | 5f9b0004-7a6b-4c2d-9e8f-1234567890ab |
 
-paper.text puts the 12×13 px glyph cell at (x, y). Newlines advance by 13 and
-reset x to the text call's start. scale is accepted but ignored. Missing
-codepoints use the tofu glyph and advance 12 px.
+Info value (16 bytes, little-endian): magic T5AP, version 1, flags 3
+(bit 0 image, bit 1 script), width 122, height 250, stride 16, max bytes 4000.
 
-Samples use only this API and are self-contained ES5:
+Control commands:
 
-- 基础卡片; 文字海报; 年度进度; 每周计划; 待办; 月相; 测试图; 点阵图案.
+| Byte | Command | Payload |
+| --- | --- | --- |
+| 0x01 | BEGIN | total u32, width u16, height u16, crc32 u32, flags u8 (1) => 14 bytes |
+| 0x03 | COMMIT | none |
+| 0x04 | ABORT | none |
+| 0x05 | TIME | epoch u32 (reserved; the BLE-only editor does not need it) |
+| 0x06 | EXIT | show the QR screen; BLE stays active |
+| 0x10 | BEGIN_SCRIPT | total u32, crc32 u32 => 9 bytes |
+| 0x12 | COMMIT_SCRIPT | none |
+| 0x13 | RUN_SCRIPT | none; run the script already in NVS |
+| 0x14 | ABORT_SCRIPT | none |
 
-The editor rejects const/let/class, arrow functions, template strings,
-async/await, generators, optional chaining, nullish coalescing, browser globals, old paper.*
-helpers and text-first paper.text. Script limit is 4096 UTF-8 bytes.
+Data writes are [offset u16 LE][payload]; the offset must equal the number of bytes
+already received. The image is 122×250, MSB-first, stride 16, exactly 4,000 bytes,
+bit 1 = black. The editor sends 100-byte chunks and falls back to 20-byte
+write-with-response chunks if the MTU is small.
 
-The atlas is the 31,345-glyph Fusion Pixel 12 px cmap, not a quote-only subset.
-Most common Chinese now renders without tofu, but a codepoint absent from that
-font still uses the tofu glyph. JS 画布 is always portrait; the landscape button
-is disabled.
+Status notifications are [0x80, code, 0, 0, value u32 LE]:
 
-Examples:
+| Code | Meaning |
+| --- | --- |
+| 0 | READY |
+| 1 | ACCEPTED (value = bytes received) |
+| 2 | DONE (value = image bytes or script hash) |
+| 3 | size/format error |
+| 4 | CRC error |
+| 5 | offset error |
+| 6 | aborted |
+| 7 | state error |
+| 8 | render error |
+| 9 | timeout |
+| 10 | out of memory |
+| 11 | script/eval failed |
+| 12 | NVS save failed |
 
-    var W = paper.width(), H = paper.height();
-    paper.clear(0);
-    paper.fillRect(0, 0, W, 38, 1);
-    paper.text(4, 1, "每日一句", 1, 0);
-    paper.text(4, 92, "知是行之", 1, 1);
-    paper.commit();
+For an image, DONE value is the byte count. For a script, DONE value is the
+framebuffer FNV hash; error values are diagnostic and may be zero.
 
-The exact same source can be Run in the browser, sent as a 4,000-byte bitmap,
-or pushed to the T5. A successful push leaves the previous source/image intact
-on failure (error 11 or 12).
+### BLE script upload (experimental)
 
-## Browser support
+A script package uses the same control and data characteristics:
 
-- Android Chrome / Edge: yes
-- desktop Chrome / Edge: yes
-- iPhone Safari: no Web Bluetooth (use Bluefy or a native app)
-- Firefox: no Web Bluetooth
+~~~text
+control 0x10  [total u32 LE][crc32 u32 LE]
+data           [offset u16 LE][payload] repeatedly
+control 0x12  commit
+control 0x13  run the source already stored in NVS
+control 0x14  abort
+~~~
 
-## Files
+The source limit is **4096 bytes**. The device allocates the buffer at BEGIN and
+frees it after the commit result. On commit it runs the source in the 32 KB
+MicroQuickJS context, renders the 122x250 framebuffer, and only then stores the
+source under NVS keys "js"/"jscrc"; the rendered 4,000-byte bitmap is stored under
+"img"/"crc" as before. If parsing/eval/render/NVS fails, the previous source and
+image remain stored and the notification is an error. There is no A/B slot yet.
 
-- index.html — layout, orientation switch
-- style.css — responsive UI
-- app.js — built-in photo/daily rendering, 1-bit packing, CRC32, GATT image/script client
-- quotes.js — local quote corpus for 每日一句
-- device-paper.js — device API simulator and all JS samples
-- fonts/device12.png + device12.json — exported firmware 12 px atlas
-- fonts/fusion-pixel-8px.woff2 — 8 px pixel font
-- fonts/fusion-pixel-10px.woff2 — 10 px pixel font
-- fonts/fusion-pixel-12px.woff2 — 12 px pixel font
-- fonts/OFL.txt — Fusion Pixel license
-- fonts/wqy14.png — native 14 px WenQuanYi Song atlas
-- fonts/wqy16.png — native 16 px WenQuanYi Song atlas
-- fonts/WQY-COPYING — WenQuanYi GPLv2 + embedding exception
-- fonts/WQY-AUTHORS — WenQuanYi authors
-- fonts/WQY-README — upstream font README
-- fonts/WQY-SOURCE.txt — source/version note
-- fonts/song24.png — native 24 px Song glyph atlas
-- fonts/song24.json — atlas index and Unicode map
-- fonts/ISCAS.txt — ISCAS Song license
-- fonts/noto-serif-sc.woff2 — Noto Serif SC subset for 18–48 px detail
-- fonts/noto-sans-sc.woff2 — Noto Sans SC subset, 24 px font option
-- fonts/NOTO-OFL.txt — Noto license
-- fonts/NOTO-SOURCE.txt — Noto subset source note
+The last image is restored on boot; the script is not auto-run. Use serial 's'
+or BLE command 0x13 to run it. 'j' still runs the built-in probe.
 
-The bitmap is 122×250, MSB-first, stride 16, exactly 4,000 bytes, 1 = black.
-Landscape is rotated into this same buffer before sending.
+Upload the included card:
+
+~~~sh
+python3 tools/ble_push_script.py tools/ble_demo.js --name T5-6F24
+~~~
+
+Measured with the 378-byte demo, BLE active, after the upload:
+
+| Item | Value |
+|---|---:|
+| script source | 378 B |
+| NVS script write | 378/378 B |
+| JS heap used | 5,276 B |
+| free heap before eval | 112,108 B |
+| lowest free heap | 79,088 B |
+| JS eval | 17.6 ms |
+| JS eval + dump + free | 58.9 ms |
+| panel update | 3.87 s |
+| framebuffer hash | 70ca6c84 |
+| max persisted source | 4096 B |
+
+A 4096 B source was accepted and survived reboot. An 8192 B source was rejected
+at NVS (putBytes returned 0/8192), so the transport and NVS cap are both
+4096 B; that is enough for layout scripts, but not a general application bundle.
+The host uploader uses 180-byte write-with-response chunks and checks the info
+characteristic before writing.
+
+The display is drawn with setRotation(0) and drawBitmap(0, 0, data, 122, 250). The
+controller RAM is 128 columns wide but only 122 are visible; on this panel the visible
+area starts at column 0, so no x offset is needed. (With x=3, x=2, or x=1 the right
+edge was clipped by one pixel.)
+
+## Editor
+
+The editor is plain static HTML/CSS/JS in web/ — no build step, no backend:
+
+| File | Purpose |
+| --- | --- |
+| web/index.html | layout, template list, orientation, connect/send controls |
+| web/style.css | responsive desktop/mobile UI |
+| web/app.js | pixel-font rendering, 1-bit packing, CRC32, Web Bluetooth GATT client |
+| web/quotes.js | local 77-quote corpus for the daily quote card |
+| web/device-paper.js | device API simulator: fixed 122×250 framebuffer, device glyph atlas, samples |
+| web/fonts/device12.png | exported firmware 12 px atlas for the simulator |
+| web/fonts/device12.json | glyph map/advances for device12.png |
+| web/fonts/fusion-pixel-8px.woff2 | 8px pixel font (SIL OFL) |
+| web/fonts/fusion-pixel-10px.woff2 | 10px pixel font (SIL OFL) |
+| web/fonts/fusion-pixel-12px.woff2 | 12px pixel font (SIL OFL) |
+| web/fonts/OFL.txt | Fusion Pixel license |
+| web/fonts/wqy14.png | native 14px WenQuanYi Song atlas |
+| web/fonts/wqy16.png | native 16px WenQuanYi Song atlas |
+| web/fonts/WQY-COPYING | WenQuanYi GPLv2 + embedding exception |
+| web/fonts/WQY-AUTHORS | WenQuanYi authors |
+| web/fonts/WQY-README | upstream font README |
+| web/fonts/WQY-SOURCE.txt | source/version note |
+| web/fonts/song24.png | native 24px Song glyph atlas |
+| web/fonts/song24.json | atlas index and Unicode map |
+| web/fonts/ISCAS.txt | ISCAS Song license |
+| web/fonts/noto-serif-sc.woff2 | Noto Serif SC subset for live 18–48px detail |
+| web/fonts/noto-sans-sc.woff2 | Noto Sans SC subset, 24px font option |
+| web/fonts/NOTO-OFL.txt | Noto license (SIL OFL) |
+| web/fonts/NOTO-SOURCE.txt | Noto subset source/version note |
+
+### Landscape and portrait
+
+The panel is physically 122×250. The editor supports both:
+
+- 竖屏 122×250 — sent as-is.
+- 横屏 250×122 — laid out horizontally, then rotated 90° clockwise into the
+  122×250 transport buffer. Rotate the device clockwise 90° to view it upright.
+
+Both orientations use the same 4,000-byte GATT format, so the device firmware does not
+need to know the orientation. Photo and 每日一句 are built-in templates with separate
+portrait/landscape layouts. JS 画布 is different: the device runtime is fixed at
+122×250, so scripts always run in portrait and the landscape button is disabled.
+
+
+### Chinese text
+
+The browser system fonts looked blurry after being downsampled to 1-bit, and simply
+enlarging the 12 px pixel font to 24 px adds no detail. The editor now supports the
+size ladder 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px:
+
+- **8 / 10 / 12 px**: three independent Fusion Pixel designs, rasterised and
+  thresholded to 1-bit.
+- **14 / 16 px Chinese**: native WenQuanYi Bitmap Song atlases (wqy14.png/json,
+  wqy16.png/json), rasterised from the 13px and 12pt PCF strikes. These are real
+  14/16 px designs, not the 24 px grid scaled down.
+- **18 / 20 / 22 / 24 / 26 / 28 / 30 / 32 / 48 px Chinese**: a high-resolution
+  Noto Serif SC outline, rasterised and thresholded separately at each target
+  size. This includes 24 and 48, so neither is borrowed from a bitmap grid.
+- **Latin/numbers 18 px and above**: also rendered from Noto Serif at the target
+  size, so the big year/countdown digits are not 12 px scaled four times. Below
+  18 px, Latin/numbers use the integer-scaled 12 px master.
+- **JS 画布**: always the firmware's 12 px 1-bit atlas, loaded from
+  fonts/device12.png/json. There is no browser font choice and no size
+  ladder in scripts; the device ignores the scale argument.
+
+The 8–16 px atlases are transparent 1-bit PNGs with a JSON Unicode map. The 18 px
+and larger glyphs are rendered from the outline and cached per glyph/size. There is
+no anti-aliased text in the final image.
+
+Labels and body text use 12 px, section titles and dates 24 px, and the large numbers
+(day count, year percentage) 48 px. 每日一句 auto-fits its body between 10 and 24 px.
+JS 画布 never uses the size ladder: its scripts draw with the device's fixed 24 px
+atlas, so the browser preview is the device image.
+
+Fusion Pixel covers 31k+ CJK/ASCII glyphs and is under SIL OFL. WenQuanYi Bitmap Song
+covers GB18030 and is under **GPLv2 with the font embedding exception**; the license,
+authors and source note are bundled in web/fonts/WQY-*. Noto Serif SC is SIL OFL; its
+subset, license and source note are bundled as web/fonts/NOTO-*. The 24 px Song covers
+GB2312 (7,445 glyphs) under the ISCAS permissive license and is now only a fallback
+for rare glyphs outside the Noto subset.
+
+8/10/12 and 14/16 are real bitmap designs. 18 px and above, including 24 and 48, use
+the Noto Serif outline at each exact target size, so they do not inherit a bitmap grid.
+
+### Templates
+
+照片 / 每日一句 / JS 画布
+
+The sidebar deliberately has only these three entries. 照片 and 每日一句 are the
+two built-in templates; everything else is a JS 画布 use case:
+
+文字海报 / 年度进度 / 每周计划 / 待办 / 月相 / 测试图 / 点阵图案 / 基础卡片
+
+Photos are cropped to the current orientation, converted to grayscale, and
+Floyd–Steinberg (or Bayer/none) dithered. JS cards use a threshold so glyphs stay
+crisp. The preview is the actual 1-bit buffer; 下载 PNG saves it without connecting.
+
+Photo data never leaves the browser; only the packed 4,000-byte bitmap is written to the
+BLE data characteristic.
+
+JS 画布 is now a device simulator, not a separate rich browser canvas. One source is
+used for Run, 发送到 T5 (bitmap) and 推送脚本 (ES5 source). The preview, the packed
+bitmap and the device execution all use the same 122×250 framebuffer and the same
+12 px atlas. 推送脚本 uploads the source (max 4096 B) over control 0x10/0x12; the T5
+executes it with its own runtime. 运行已存 sends 0x13 to rerun the source in NVS. The
+editor counts UTF-8 bytes and checks the ES5 subset before enabling the push button.
+
+### 每日一句
+
+The 每日一句 template is a local, quiet daily-quote card inspired by the
+Quote/0 format but built for the BLE-only T5:
+
+- 77 quotations and three original AirPage lines live in web/quotes.js.
+- The date (YYYY-MM-DD) is hashed to a stable starting quote, so the same day
+  always shows the same quote.
+- 上一句 / 换一句 / 今天 change the local offset; 今天 also resets the date to
+  the browser's local date.
+- The date input lets you preview any day, including future dates.
+- No network, no cloud, no upload: the quote text and the selected bitmap stay
+  in the browser.
+- The layout auto-fits the quote at 10–24 px and switches between portrait and
+  landscape. Long quotations get a smaller native size rather than being clipped.
+
+### JS 画布：浏览器就是设备模拟器
+
+JS 画布 has one source, one API and one framebuffer. The browser loads the
+firmware's exported 12 px atlas (web/fonts/device12.png + device12.json) and
+draws into a fixed 122×250, 1-bit, stride-16 buffer. The preview is packed with
+the same MSB-first rules as the image transport, and paper.commit() returns the
+same FNV-1a hash the device reports after evaluating the source.
+
+That means the same source has three equivalent outcomes:
+
+- Run renders it in the browser with the device API;
+- 发送到 T5 sends the resulting 4,000-byte bitmap through the normal image path;
+- 推送脚本 uploads the source itself (max 4096 UTF-8 bytes); the T5 runs it in
+  MicroQuickJS against the same atlas and framebuffer.
+
+There is no separate rich browser API any more. The old paper.colors, paper.size,
+paper.font, paper.ui, paper.flex, drawTextEx and measureText calls are gone from
+JS 画布. Photo and 每日一句 keep their own built-in layouts and size ladder; only
+the JS source is unified with the device.
+
+#### API
+
+The device implements exactly these calls:
+
+    var W = paper.width();       // 122
+    var H = paper.height();      // 250
+    paper.clear(0);              // 0 = white, 1 = black; default 0
+    paper.setPixel(x, y, 1);     // clipped; default black 1
+    paper.fillRect(x, y, w, h, 1);
+    paper.text(x, y, "text", 1, 1);  // x, y, text, scale, black
+    paper.textWidth("text", 1);  // max line width in pixels
+    paper.lineHeight(1);         // 13
+    paper.commit();              // returns the framebuffer FNV-1a hash
+
+paper.text draws the 12×13 px glyph cell with its top-left at (x, y). Newlines move
+down by lineHeight and reset x to the start of the text call. The scale argument
+is accepted for compatibility but ignored: the device has one 12 px atlas.
+paper.textWidth follows the same proportional advances; a missing or unknown
+codepoint uses the tofu glyph and advances 12 px.
+
+#### Samples
+
+Selecting a sample loads its source into the single editor. The current samples are:
+
+- 基础卡片 — the 853 B default card, including the header and quote;
+- 文字海报 — quote, wrapped lines, rule and byline;
+- 年度进度 — a fixed-percentage progress card (edit pct for your own value);
+- 每周计划 — seven day rows;
+- 待办 — checkboxes and six items;
+- 月相 — a computed illuminated disc and labels;
+- 测试图 — border, grid, TOP/BOTTOM and 1-bit text;
+- 点阵图案 — a repeating dot pattern.
+
+All sample code is self-contained ES5 and uses only the calls above. A sample
+that needs dates, timers or randomness can still run, but it will not be
+deterministic across the browser and the device; the built-in samples avoid
+that so the preview and the panel stay identical.
+
+#### ES5 and limits
+
+The device is MicroQuickJS with an ES5 subset. The editor rejects const, let,
+class, arrow functions, template strings, async/await, generators, optional
+chaining and nullish coalescing before running or pushing. It also rejects
+browser-only paper.* names, browser globals such as window/document/fetch, and the old text-first paper.text(...) form.
+
+- Script limit: 4096 UTF-8 bytes. The counter turns red above the limit and the
+  push button disables; Run and Send bitmap still work with a longer source, but
+  the device cannot store it.
+- The simulator evaluates source on the page main thread; an accidental
+  infinite loop will freeze the editor tab. Keep loops bounded.
+- The atlas is the 31,345-glyph Fusion Pixel 12 px cmap, not a quote-only
+  subset. Arbitrary Chinese mostly renders; a codepoint absent from Fusion
+  Pixel still uses tofu. The exporter is tools/export_device_font.py, which
+  reads src/font12_atlas.c and writes web/fonts/device12.png/json; expanding it
+  means rebuilding/flashing the firmware atlas too.
+- JS is always portrait 122×250. The landscape button is disabled in this
+  template because the device runtime has no 250×122 mode.
+- Failed evaluation, rendering or NVS still leaves the previous source and image
+  on the device and returns error 11 or 12.
+
+#### Push transport
+
+The same Web Bluetooth service is used as for images:
+
+- control 0x10 BEGIN_SCRIPT: total u32 LE + CRC32 u32 LE;
+- data characteristic: offset u16 LE + source bytes;
+- control 0x12 COMMIT_SCRIPT: run, refresh and save source/image to NVS;
+- control 0x13 RUN_SCRIPT: rerun the saved source without uploading;
+- control 0x14 ABORT_SCRIPT.
+
+The push button is hidden/disabled when the connected firmware does not report
+the script flag in the info characteristic. A .js/.txt file can be loaded into
+the same editor. After a successful push the preview should match the panel; if
+you edit the source without pushing, Run only updates the browser, and 运行已存
+shows the version already in NVS.
+
+### Hosting and QR URL
+
+Web Bluetooth needs a secure context (HTTPS, or localhost on the same machine). The
+editor is published at:
+
+~~~text
+https://xuchdeid.github.io/t5-airpage/
+~~~
+
+~~~c
+#define EDITOR_URL "https://xuchdeid.github.io/t5-airpage/"
+~~~
+
+The firmware appends ?d=<BLE name>. The source is this web/ directory (GitHub
+repository xuchdeid/t5-airpage); push to main to republish. Host the folder on any
+static HTTPS server and change the macro to use a different URL.
+
+The QR uses version 4 / ECC low; keep the final URL under ~78 bytes.
+
+**iPhone note:** Safari does not implement Web Bluetooth. Android Chrome, desktop
+Chrome/Edge, and Bluefy (iOS Web Bluetooth browser) work. A native app would be needed
+for a first-party iPhone experience.
+
+## Firmware size
+
+| Build | Bytes | huge_app 3 MiB |
+| --- | --- | --- |
+| BLE-only AirPage + JS runtime + 12 px atlas + script transport (current) | 2,324,869 | 73.9% |
+| BLE-only AirPage before JS runtime | 1,148,480 | 36.5% |
+| clock + file page + BLE (previous) | 1,679,481 | 53.4% |
+
+RAM: 55,580 / 327,680 bytes (17.0%). The JS runtime, 12 px atlas, and
+script transport add about 1.18 MB of flash (108 KB engine + 1.04 MB atlas +
+2 KB BLE script code) and a 4 KB framebuffer. The 4 KB BLE source buffer
+exists only during upload.
+only while a script runs (serial j, s, or a BLE commit). Removing WiFi freed
+about 538 KB of flash and 16 KB of static RAM, and made boot immediate.
+
+## Partition table
+
+platformio.ini sets board_build.partitions = huge_app.csv:
+
+| Name | Offset | Size |
+| --- | --- | --- |
+| nvs | 0x9000 | 20 KiB |
+| otadata | 0xe000 | 8 KiB |
+| app0 | 0x10000 | 3 MiB |
+| spiffs | 0x310000 | 896 KiB |
+| coredump | 0x3f0000 | 64 KiB |
+
+There is no app1, so OTA is not possible; flashing is over USB. The NVS namespace
+airpage uses about 4 KB for the image. src/fileserver.cpp is deliberately excluded
+from the build; no WiFi stack or HTTP server is linked.
+
+## Stock firmware backup
+
+The board arrived with a MicroPython weather-station firmware (built 2019-11-09,
+ESP-IDF v3.3). Full 4 MB image saved before flashing:
+
+~~~text
+backup/t5_stock_20191109.bin
+sha256 338bdd974c40a5fa3f77adabb3c39a597f9fe67b46993b3242738b458a4e7e89
+~~~
+
+Restore with:
+
+~~~bash
+~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  --port /dev/cu.usbserial-01C8A520 --baud 921600 \
+  write_flash 0x0 backup/t5_stock_20191109.bin
+~~~
+
+## Refresh performance (measured on this unit)
+
+| Mode | Time | Effective rate |
+| --- | --- | --- |
+| Full refresh, 250×122 | 4.24 - 4.36 s | ~0.23 fps |
+| Partial refresh, 234×106 | 321 ms | 3.12 fps |
+| Partial refresh, 234×20 | 307 ms | 3.26 fps |
+| Partial refresh, 120×50 | 305 ms | 3.28 fps |
+| Partial refresh, 64×32 | 300 ms | 3.33 fps |
+
+The panel's own part of a partial update is 294 ms; the rest is drawing + SPI. AirPage
+uses full refresh after each received image.
+
+Re-run with:
+
+~~~bash
+pio run -e t5_b73_bench -t upload --upload-port /dev/cu.usbserial-01C8A520
+~~~
+
+Caveats: partial updates accumulate ghosting, refresh gets slower below ~10 °C, and
+hibernating between frames adds ~90 ms power-on plus ~230 ms power-off.
+
+## Notes
+
+- Remove the microSD card before uploading: SD CS is GPIO2, a boot strapping pin.
+- If upload fails: hold BOOT, tap RST, release RST, release BOOT.
+- No WiFi credentials or WiFi state are used by this build; old NVS wifi entries are
+  ignored.
+- BLE is always advertising, so average current is higher than the old light-sleep
+  clock. Add a BLE idle timeout/button-wake later if battery life matters.
