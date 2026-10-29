@@ -12,20 +12,8 @@ const CMD_BEGIN_SCRIPT = 0x10, CMD_COMMIT_SCRIPT = 0x12;
 const CMD_RUN_SCRIPT = 0x13, CMD_ABORT_SCRIPT = 0x14;
 let W = PANEL_W, H = PANEL_H;
 
-const DEVICE_SCRIPT_DEFAULT = [
-  'var W = paper.width();',
-  'var H = paper.height();',
-  'var M = 4;',
-  'paper.clear(0);',
-  'paper.fillRect(0, 0, W, 38, 1);',
-  "paper.text(M, 1, '每日一句', 1, 0);",
-  "paper.text(M, 52, 'BLE', 1, 1);",
-  "paper.text(M, 92, '知是行之', 1, 1);",
-  "paper.text(M, 128, '始，行是', 1, 1);",
-  "paper.text(M, 164, '知之成。', 1, 1);",
-  "paper.text(M, H - 24, 'AirPage', 1, 1);",
-  'paper.commit();'
-].join('\n');
+const DEVICE_SCRIPT_DEFAULT = (window.T5Paper && T5Paper.samples.hello.code) ||
+  'paper.clear(0);\npaper.text(6, 6, "AirPage", 1, 1);\npaper.commit();';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -404,22 +392,22 @@ function errorFrame(msg) {
   const paper = T5Paper.create();
   paper.clear(0);
   paper.text(4, 4, "ERROR", 1, 1);
-  let y = 42;
+  let y = 20;
   const text = String(msg || "unknown").replace(/\s+/g, " ");
   let line = "";
   let count = 0;
   for (const ch of text) {
     const test = line + ch;
-    if (line && paper.textWidth(test, 1) > 114) {
+    if (line && paper.textWidth(test, 1) > 112) {
       paper.text(4, y, line, 1, 1);
       y += paper.lineHeight(1);
       line = ch;
-      if (++count >= 4) break;
+      if (++count >= 6) break;
     } else {
       line = test;
     }
   }
-  if (line && y < 230) paper.text(4, y, line, 1, 1);
+  if (line && y < 236) paper.text(4, y, line, 1, 1);
   paper.commit();
   return paper;
 }
@@ -787,7 +775,7 @@ function renderControls() {
     h += '<p class="tiny">本地语料，共 ' + DAILY_QUOTES.length + ' 句；按日期确定性选择，点按钮切换。不会联网，也不会上传文字。</p>';
   } else if (state.template === 'js') {
     const samples = (window.T5Paper && T5Paper.samples) || {};
-    h += '<p class="tiny">这里就是 T5 的设备 JS 模拟器：浏览器按设备同一套 API、同一份 24px 字库、同一个 122×250 1-bit 帧缓冲运行。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
+    h += '<p class="tiny">这里就是 T5 的设备 JS 模拟器：浏览器按设备同一套 API、同一份 12px 大字库（31K）、同一个 122×250 1-bit 帧缓冲运行。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
     h += '<div class="row"><label>用例</label><select id="jsExample">' +
       Object.entries(samples).map(([k, s]) => '<option value="' + k + '">' + esc(s.name) + '</option>').join('') +
       '<option value="custom">自定义</option>' +
@@ -796,7 +784,7 @@ function renderControls() {
     h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span id="jsBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
     h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span class="tiny">载入 .js 覆盖当前脚本</span></div>';
     h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button></div>';
-    h += '<p class="tiny">API：paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。只有一种 24px 字库，scale 参数保留但被忽略；脚本固定竖屏 122×250。连接 T5 后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。脚本在主线程执行，死循环会卡住页面。</p>';
+    h += '<p class="tiny">API：paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。只有一种 12px 大字库（31K 字形），lineHeight 返回 13；scale 参数保留但被忽略。脚本固定竖屏 122×250。连接 T5 后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。脚本在主线程执行，死循环会卡住页面。</p>';
   }
   c.innerHTML = h;
 

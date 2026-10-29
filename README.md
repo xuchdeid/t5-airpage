@@ -49,11 +49,11 @@ Canvas text supports 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 px
   target size. This includes 24 and 48; neither is a bitmap scaled up or down.
 - Latin/numbers 18 px and above: also Noto Serif at the target size. Below 18 px
   they fall back to the integer-scaled 12 px master.
-- JS 画布: the firmware 24 px atlas (device24.png/json) only; the
-  device ignores the scale argument and has no font families.
+- JS 画布: the firmware 12 px atlas (device12.png/json) only; the device
+  ignores the scale argument and has no font families.
 
 The built-in 每日一句 card auto-fits 10–24 px. JS 画布 is fixed to the device
-24 px atlas, so its preview and the panel match exactly. Do not switch the
+12 px atlas, so its preview and the panel match exactly. Do not switch the
 canvas back to system fonts: anti-aliased Chinese loses strokes at this resolution.
 
 WenQuanYi Bitmap Song is GPLv2 with the font embedding exception; see
@@ -76,7 +76,7 @@ request is made when it renders.
 ## JS 画布（设备模拟器）
 
 The browser and the T5 now run the same API. JS 画布 loads the firmware's
-exported 24 px atlas and draws into a fixed 122×250 1-bit framebuffer with
+exported 12 px atlas and draws into a fixed 122×250 1-bit framebuffer with
 stride 16. The preview is packed exactly like the image transport; the same
 source can be sent as a bitmap, or pushed as source and run by the T5.
 
@@ -92,12 +92,12 @@ API (nothing else exists on the device):
     paper.fillRect(x, y, w, h, black)
     paper.text(x, y, text, scale, black)
     paper.textWidth(text, scale)
-    paper.lineHeight(scale)       // 36
+    paper.lineHeight(scale)       // 13
     paper.commit()                // returns FNV-1a hash
 
-paper.text puts the 24 px glyph cell at (x, y). Newlines advance by 36 and reset
-x to the text call's start. scale is accepted but ignored. Missing codepoints
-use the tofu glyph and advance 24 px.
+paper.text puts the 12×13 px glyph cell at (x, y). Newlines advance by 13 and
+reset x to the text call's start. scale is accepted but ignored. Missing
+codepoints use the tofu glyph and advance 12 px.
 
 Samples use only this API and are self-contained ES5:
 
@@ -107,9 +107,10 @@ The editor rejects const/let/class, arrow functions, template strings,
 async/await, generators, optional chaining, nullish coalescing, browser globals, old paper.*
 helpers and text-first paper.text. Script limit is 4096 UTF-8 bytes.
 
-The atlas is a 633-glyph subset: the built-in quote corpus, AirPage UI strings
-and ASCII. Other Chinese renders as tofu until the firmware atlas is expanded.
-JS 画布 is always portrait; the landscape button is disabled.
+The atlas is the 31,345-glyph Fusion Pixel 12 px cmap, not a quote-only subset.
+Most common Chinese now renders without tofu, but a codepoint absent from that
+font still uses the tofu glyph. JS 画布 is always portrait; the landscape button
+is disabled.
 
 Examples:
 
@@ -138,7 +139,7 @@ on failure (error 11 or 12).
 - app.js — built-in photo/daily rendering, 1-bit packing, CRC32, GATT image/script client
 - quotes.js — local quote corpus for 每日一句
 - device-paper.js — device API simulator and all JS samples
-- fonts/device24.png + device24.json — exported firmware 24 px atlas
+- fonts/device12.png + device12.json — exported firmware 12 px atlas
 - fonts/fusion-pixel-8px.woff2 — 8 px pixel font
 - fonts/fusion-pixel-10px.woff2 — 10 px pixel font
 - fonts/fusion-pixel-12px.woff2 — 12 px pixel font
