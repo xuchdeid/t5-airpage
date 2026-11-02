@@ -27,6 +27,7 @@
   'use strict';
 
   var PING_TIMEOUT = 700;
+  var REQ_TIMEOUT = 6000;
   var CONCURRENCY = 24;
 
   function baseUrl(host) {
@@ -128,15 +129,30 @@
   function req(host, id, path, opts) {
     opts = opts || {};
     var headers = { 'X-T5-Id': id };
+    var t = withTimeout(REQ_TIMEOUT);
+    var request;
     /* No Content-Type for FormData: the browser must set the boundary. */
     if (opts.form) {
-      return fetch(baseUrl(host) + path, {
-        method: opts.method || 'POST', headers: headers, body: opts.form, cache: 'no-store'
-      }).then(handle);
+      request = fetch(baseUrl(host) + path, {
+        method: opts.method || 'POST', headers: headers, body: opts.form,
+        cache: 'no-store', signal: t.signal
+      });
+    } else {
+      request = fetch(baseUrl(host) + path, {
+        method: opts.method || 'GET', headers: headers, body: opts.body,
+        cache: 'no-store', signal: t.signal
+      });
     }
-    return fetch(baseUrl(host) + path, {
-      method: opts.method || 'GET', headers: headers, body: opts.body, cache: 'no-store'
-    }).then(handle);
+    return request.then(handle).then(
+      function (j) { t.done(); return j; },
+      function (e) {
+        t.done();
+        if (e && (e.name === 'AbortError' || /aborted/i.test(String(e.message)))) {
+          throw new Error('timeout');
+        }
+        throw e;
+      }
+    );
 
     function handle(r) {
       return r.json().catch(function () { return {}; }).then(function (j) {

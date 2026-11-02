@@ -1449,16 +1449,21 @@ function rememberDevice(host) {
 }
 
 async function netConnect(host, id) {
-  host = (host || '').trim();
-  id = (id || '').trim();
+  host = String(host || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  id = String(id || '').trim();
+  const idInUrl = id.match(/[?&]id=([A-Za-z0-9_-]{16})/);
+  if (idInUrl) id = idInUrl[1];
   if (!host) { netMsg('先填设备地址，例如 192.168.31.44', 'bad'); return; }
   if (!/^[A-Za-z0-9_-]{16}$/.test(id)) {
     netMsg('id 应该是 16 位字符，扫码后地址栏里的 ?id= 就是它。', 'bad');
+    setStatus('id 格式不对：填二维码里的 16 位 id', 'bad');
     return;
   }
   const btn = $('#netgo');
   if (btn) btn.disabled = true;
-  netMsg('正在用 id 验证…');
+  netMsg('正在连接 ' + host + '…（最多 6 秒）');
+  setStatus('正在连接 ' + host + '…');
+  setDot('busy');
   try {
     const info = await T5Net.info(host, id);
     if (info.w !== PANEL_W || info.h !== PANEL_H) {
@@ -1483,9 +1488,18 @@ async function netConnect(host, id) {
     netDev = null; netDevId = '';
     setDot('');
     const m = String(e.message || e);
-    netMsg(m === 'id'
-      ? 'id 不对：二维码上那 16 位才是凭据。'
-      : '连接失败：' + m + ' ' + (window.T5Net ? T5Net.protocolHint() : ''), 'bad');
+    let msg;
+    if (m === 'id') {
+      msg = 'id 不对：二维码上那 16 位才是凭据。';
+    } else if (m === 'timeout') {
+      msg = '连接超时：设备地址不可达，或浏览器拦截了局域网 HTTP 请求。Safari / 旧版 Firefox 请改用局域网 http 打开编辑器。';
+    } else if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
+      msg = '无法访问 ' + host + '：确认电脑和 Sticky 在同一 Wi-Fi，且地址是局域网 IP。';
+    } else {
+      msg = '连接失败：' + m;
+    }
+    netMsg(msg + ' ' + (window.T5Net ? T5Net.protocolHint() : ''), 'bad');
+    setStatus(msg, 'bad');
   } finally {
     if (btn) btn.disabled = false;
   }
