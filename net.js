@@ -129,7 +129,7 @@
   function req(host, id, path, opts) {
     opts = opts || {};
     var headers = { 'X-T5-Id': id };
-    var t = withTimeout(REQ_TIMEOUT);
+    var t = withTimeout(opts.timeout || REQ_TIMEOUT);
     var request;
     /* No Content-Type for FormData: the browser must set the boundary. */
     if (opts.form) {
@@ -176,7 +176,7 @@
        NUL-trimmed on the way in. */
     var fd = new FormData();
     fd.append('image', new Blob([bytes], { type: 'application/octet-stream' }), 'frame.bin');
-    return req(host, id, '/api/image', { method: 'POST', form: fd });
+    return req(host, id, '/api/image', { method: 'POST', form: fd, timeout: 15000 });
   }
 
   function pushScript(host, id, source) {
@@ -186,7 +186,7 @@
     }
     var fd = new FormData();
     fd.append('script', new Blob([source], { type: 'text/plain' }), 'device.js');
-    return req(host, id, '/api/script', { method: 'POST', form: fd });
+    return req(host, id, '/api/script', { method: 'POST', form: fd, timeout: 10000 });
   }
 
   function runStored(host, id) { return req(host, id, '/api/run', { method: 'POST' }); }
