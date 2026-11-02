@@ -6,6 +6,7 @@ const CTRL    = '5f9b0002-7a6b-4c2d-9e8f-1234567890ab';
 const DATA    = '5f9b0003-7a6b-4c2d-9e8f-1234567890ab';
 const INFO    = '5f9b0004-7a6b-4c2d-9e8f-1234567890ab';
 const PANEL_W = 122, PANEL_H = 250, STRIDE = 16;
+const STICKY_W = 480, STICKY_H = 800;   /* logical portrait preview */
 const IMAGE_BYTES = STRIDE * PANEL_H;
 const SCRIPT_MAX = 4096;
 const CMD_BEGIN_SCRIPT = 0x10, CMD_COMMIT_SCRIPT = 0x12;
@@ -54,6 +55,7 @@ const jsSavedExample = (() => {
   return 'custom';
 })();
 const state = {
+  board: 't5',              /* 't5' | 'sticky' */
   template: 'daily',
   orientation: 'portrait',
   photo: null,
@@ -68,12 +70,30 @@ const state = {
   jsCode: jsSavedCode,
 };
 
+/* ---------- device profile ---------- */
+function isSticky() { return state.board === 'sticky'; }
+function boardFromName(name) {
+  const n = String(name || '').toUpperCase();
+  if (n.startsWith('STK')) return 'sticky';
+  if (n.startsWith('T5')) return 't5';
+  return null;
+}
+function adoptDeviceBoard(name) {
+  const board = boardFromName(name);
+  if (board && board !== state.board) setBoard(board);
+}
+
 /* ---------- canvases ---------- */
 const preview = $('#preview');
 const pctx = preview.getContext('2d', { willReadFrequently: true });
 const base = document.createElement('canvas');
 base.width = W; base.height = H;
 let bctx = base.getContext('2d', { willReadFrequently: true });
+/* 1-bit frame used to preview the exact bytes Sticky receives (Sticky draws
+   them at 2x on its 480x800 page). */
+const bitCanvas = document.createElement('canvas');
+bitCanvas.width = W; bitCanvas.height = H;
+let bitCtx = bitCanvas.getContext('2d', { willReadFrequently: true });
 
 /* ---------- pixel fonts ----------
  * 8/10/12 px: Fusion Pixel's three independent pixel designs.
@@ -706,6 +726,26 @@ function pack(viewBits) {
 }
 
 function drawPreview() {
+  /* Sticky shows the same 122x250 frame as T5, but the panel is a portrait
+     480x800 page and the firmware draws the frame at 2x in the centre. */
+  if (isSticky()) {
+    const id = bitCtx.createImageData(W, H);
+    for (let i = 0; i < bits.length; i++) {
+      const v = bits[i] ? 0 : 255;
+      const p = i * 4;
+      id.data[p] = id.data[p + 1] = id.data[p + 2] = v;
+      id.data[p + 3] = 255;
+    }
+    bitCtx.putImageData(id, 0, 0);
+    pctx.setTransform(1, 0, 0, 1, 0, 0);
+    pctx.imageSmoothingEnabled = false;
+    pctx.fillStyle = '#fff';
+    pctx.fillRect(0, 0, STICKY_W, STICKY_H);
+    const dw = W * 2, dh = H * 2;
+    pctx.drawImage(bitCanvas, 0, 0, W, H,
+                   (STICKY_W - dw) / 2, (STICKY_H - dh) / 2, dw, dh);
+    return;
+  }
   const id = pctx.createImageData(W, H);
   for (let i = 0; i < bits.length; i++) {
     const v = bits[i] ? 0 : 255;
@@ -716,10 +756,43 @@ function drawPreview() {
   pctx.putImageData(id, 0, 0);
 }
 
+function updateOrientLabels() {
+  const p = $('#orient [data-orient="portrait"]');
+  const l = $('#orient [data-orient="landscape"]');
+  if (p) p.textContent = isSticky() ? '竖屏 480×800' : '竖屏 122×250';
+  if (l) l.textContent = isSticky() ? '横屏不可用' : '横屏 250×122';
+}
+
+function updateBoardButtons() {
+  $$('#board button').forEach(b => {
+    b.classList.toggle('active', b.dataset.board === state.board);
+  });
+  updateOrientLabels();
+  const hint = $('#hint');
+  if (!hint) return;
+  hint.innerHTML = isSticky()
+    ? 'Sticky 3.97" · 480 × 800 竖屏整页预览<br>内容仍是 122 × 250，按 2× 居中发送；照片、每日一句和 JS 共用同一套 4000 字节协议。'
+    : '122 × 250 设备帧缓冲 · 1-bit<br>照片与每日一句支持横竖屏；JS 画布固定竖屏，使用设备同一份 12px 大字库（31K）和 API 模拟；同一份源码可发位图或推送到 T5。';
+}
+
+function setBoard(board) {
+  const next = board === 'sticky' ? 'sticky' : 't5';
+  if (state.board === next) { updateBoardButtons(); return; }
+  state.board = next;
+  if (next === 'sticky' && state.orientation === 'landscape') state.orientation = 'portrait';
+  try { localStorage.setItem('t5.board', next); } catch (_) {}
+  updateBoardButtons();
+  setOrientation(state.orientation);
+}
+
 /* ---------- orientation ---------- */
 function setOrientation(o) {
   if (state.template === 'js') {
     if (o === 'landscape') setStatus('设备脚本固定 122×250 竖屏，与设备 API 一致', 'bad');
+    o = 'portrait';
+  }
+  if (isSticky() && o === 'landscape') {
+    setStatus('Sticky 使用 480×800 竖屏，不支持横屏预览', 'bad');
     o = 'portrait';
   }
   state.orientation = o === 'landscape' ? 'landscape' : 'portrait';
@@ -727,15 +800,30 @@ function setOrientation(o) {
   H = state.orientation === 'landscape' ? PANEL_W : PANEL_H;
   base.width = W; base.height = H;
   bctx = base.getContext('2d', { willReadFrequently: true });
-  preview.width = W; preview.height = H;
-  preview.style.width = (W * 2) + 'px';
-  preview.style.aspectRatio = W + ' / ' + H;
-  document.querySelector('.paperwrap').classList.toggle('landscape', state.orientation === 'landscape');
+  bitCanvas.width = W; bitCanvas.height = H;
+  bitCtx = bitCanvas.getContext('2d', { willReadFrequently: true });
+  if (isSticky()) {
+    preview.width = STICKY_W;
+    preview.height = STICKY_H;
+    preview.style.width = '240px';
+    preview.style.aspectRatio = '480 / 800';
+  } else {
+    preview.width = W; preview.height = H;
+    preview.style.width = (W * 2) + 'px';
+    preview.style.aspectRatio = W + ' / ' + H;
+  }
+  const wrap = document.querySelector('.paperwrap');
+  wrap.classList.toggle('landscape', !isSticky() && state.orientation === 'landscape');
+  wrap.classList.toggle('sticky', isSticky());
+  const noLandscape = state.template === 'js' || isSticky();
   $$('#orient button').forEach(b => {
     b.classList.toggle('active', b.dataset.orient === state.orientation);
-    b.disabled = state.template === 'js' && b.dataset.orient === 'landscape';
-    b.title = state.template === 'js' && b.dataset.orient === 'landscape' ? '设备脚本固定竖屏' : '';
+    b.disabled = noLandscape && b.dataset.orient === 'landscape';
+    b.title = noLandscape && b.dataset.orient === 'landscape'
+      ? (isSticky() ? 'Sticky 固定竖屏 480×800' : '设备脚本固定竖屏')
+      : '';
   });
+  updateOrientLabels();
   render();
 }
 
@@ -783,7 +871,7 @@ function renderControls() {
     h += '<p class="tiny">本地语料，共 ' + DAILY_QUOTES.length + ' 句；按日期确定性选择，点按钮切换。不会联网，也不会上传文字。</p>';
   } else if (state.template === 'js') {
     const samples = (window.T5Paper && T5Paper.samples) || {};
-    h += '<p class="tiny">这里就是 T5 的设备 JS 模拟器：浏览器按设备同一套 API、同一份 12px 大字库（31K）、同一个 122×250 1-bit 帧缓冲运行。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
+    h += '<p class="tiny">这里是设备的 JS 模拟器：浏览器按设备同一套 API、同一份 12px 大字库（31K）、同一个 122×250 1-bit 帧缓冲运行；Sticky 只改变整页预览。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
     h += '<div class="row"><label>用例</label><select id="jsExample">' +
       Object.entries(samples).map(([k, s]) => '<option value="' + k + '">' + esc(s.name) + '</option>').join('') +
       '<option value="custom">自定义</option>' +
@@ -899,12 +987,21 @@ function renderControls() {
 
 /* ---------- bluetooth ---------- */
 let btDevice = null, btServer = null, btService = null;
+
+/* WiFi transport state. When netDev is set, the same buttons talk HTTP
+   instead of GATT; netDevId is the 16-char id from the QR code. */
+let netDev = null;      // { host, name }
+let netDevId = '';
 let ctrlChar = null, dataChar = null, infoChar = null;
 let doneWaiter = null;
 let btBusy = false, transferKind = '', deviceSupportsScript = false;
 
+function linkConnected() {
+  return !!ctrlChar || !!netDev;
+}
+
 function syncBtButtons() {
-  const connected = !!ctrlChar;
+  const connected = linkConnected();
   const n = deviceByteLength();
   const send = $('#send');
   if (send) send.disabled = !connected || btBusy;
@@ -951,6 +1048,7 @@ async function connect() {
     await ctrlChar.startNotifications();
     ctrlChar.addEventListener('characteristicvaluechanged', onNotify);
     $('#devname').textContent = btDevice.name || 'T5';
+    adoptDeviceBoard(btDevice.name);
     $('#exit').hidden = false;
     setDot('on');
     setStatus('已连接 ' + (btDevice.name || 'T5') + (deviceSupportsScript ? '，可发送图像/脚本' : '；此固件不支持脚本推送'));
@@ -974,7 +1072,7 @@ function onDisconnected() {
     r.reject(new Error('设备已断开'));
   }
   $('#exit').hidden = true;
-  $('#devname').textContent = '未连接'; $('#connect').disabled = false; $('#connect').textContent = '连接 T5';
+  $('#devname').textContent = '未连接'; $('#connect').disabled = false; $('#connect').textContent = '连接设备';
   setDot(''); setStatus('设备已断开，仍在广播');
   syncBtButtons();
 }
@@ -1038,8 +1136,83 @@ async function writeData(bytes, withResponse) {
   else await dataChar.writeValueWithoutResponse(bytes);
 }
 
+/* ---- WiFi transport: same three actions, HTTP instead of GATT ---- */
+
+function netLabel() {
+  return (netDev && netDev.name ? netDev.name : 'T5') + ' · ' + (netDev ? netDev.host : '');
+}
+
+async function sendImageWifi() {
+  if (state.template === 'js') {
+    if (state.orientation !== 'portrait') setOrientation('portrait');
+    executeJS();
+    render();
+    if (jsCache.error) {
+      setStatus('JS 有错误，先修好再发送：' + String(jsCache.error.message || jsCache.error), 'bad');
+      return;
+    }
+  }
+  if (btBusy) return;
+  setBtBusy(true); setDot('busy'); setProgress(20);
+  try {
+    setStatus('通过 WiFi 发送 ' + IMAGE_BYTES + ' 字节…');
+    const r = await T5Net.sendImage(netDev.host, netDevId, packed);
+    setProgress(100); setDot('on');
+    setStatus('✓ 已显示在 ' + netLabel() + '（' + (r.hash || '') + '）', 'ok');
+  } catch (e) {
+    setDot(''); setStatus('WiFi 发送失败：' + (e.message || e), 'bad');
+  } finally {
+    setBtBusy(false); syncBtButtons();
+  }
+}
+
+async function pushScriptWifi() {
+  const issue = deviceSourceIssue();
+  if (issue) { setStatus('设备脚本检查：' + issue, 'bad'); return; }
+  const source = new TextEncoder().encode(state.jsCode);
+  if (source.length === 0) { setStatus('设备脚本为空', 'bad'); return; }
+  if (source.length > SCRIPT_MAX) {
+    setStatus('设备脚本 ' + source.length + ' B，超过 ' + SCRIPT_MAX + ' B 上限', 'bad');
+    return;
+  }
+  executeJS();
+  render();
+  if (jsCache.error) {
+    setStatus('脚本在模拟器中失败，未推送：' + String(jsCache.error.message || jsCache.error), 'bad');
+    return;
+  }
+  if (btBusy) return;
+  setBtBusy(true); setDot('busy'); setProgress(20);
+  try {
+    setStatus('通过 WiFi 推送脚本 ' + source.length + ' 字节…');
+    const r = await T5Net.pushScript(netDev.host, netDevId, source);
+    setProgress(100); setDot('on');
+    setStatus('✓ 脚本已推送并显示在 ' + netLabel() + '（' + (r.hash || '') + '）', 'ok');
+  } catch (e) {
+    setDot(''); setStatus('WiFi 推送失败：' + (e.message || e), 'bad');
+  } finally {
+    setBtBusy(false); syncBtButtons();
+  }
+}
+
+async function runStoredWifi() {
+  if (btBusy) return;
+  setBtBusy(true); setDot('busy'); setProgress(20);
+  try {
+    setStatus('请求设备运行已存脚本…');
+    await T5Net.runStored(netDev.host, netDevId);
+    setProgress(100); setDot('on');
+    setStatus('✓ 设备已运行已存脚本', 'ok');
+  } catch (e) {
+    setDot(''); setStatus('运行失败：' + (e.message || e), 'bad');
+  } finally {
+    setBtBusy(false); syncBtButtons();
+  }
+}
+
 async function sendImage() {
-  if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
+  if (!linkConnected()) { setStatus('请先连接设备（蓝牙或 WiFi）', 'bad'); return; }
+  if (netDev) return sendImageWifi();
   if (state.template === 'js') {
     if (state.orientation !== 'portrait') setOrientation('portrait');
     executeJS();
@@ -1108,7 +1281,8 @@ async function sendImage() {
 }
 
 async function pushScript() {
-  if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
+  if (!linkConnected()) { setStatus('请先连接设备（蓝牙或 WiFi）', 'bad'); return; }
+  if (netDev) return pushScriptWifi();
   if (!deviceSupportsScript) { setStatus('当前固件不支持脚本推送（info flags 无脚本位）', 'bad'); return; }
   if (btBusy) return;
   const issue = deviceSourceIssue();
@@ -1188,7 +1362,8 @@ async function pushScript() {
 }
 
 async function runStoredScript() {
-  if (!ctrlChar || !dataChar) { setStatus('请先连接 T5', 'bad'); return; }
+  if (!linkConnected()) { setStatus('请先连接设备（蓝牙或 WiFi）', 'bad'); return; }
+  if (netDev) return runStoredWifi();
   if (!deviceSupportsScript) { setStatus('当前固件不支持脚本', 'bad'); return; }
   if (btBusy) return;
   transferKind = 'run';
@@ -1209,14 +1384,134 @@ async function runStoredScript() {
   }
 }
 
+/* ---- WiFi connect UI ---- */
+
+function netMsg(text, kind) {
+  const el = $('#netmsg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'nethint' + (kind ? ' ' + kind : '');
+}
+
+function netPanelVisible(on) {
+  const p = $('#netpanel');
+  if (p) p.hidden = !on;
+}
+
+function netRenderList(devices) {
+  const box = $('#netlist');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!devices || !devices.length) return;
+  devices.forEach((d) => {
+    const b = document.createElement('button');
+    b.className = 'btn ghost netitem';
+    b.type = 'button';
+    b.innerHTML = '<strong>' + esc(d.name) + '</strong><span>' + esc(d.host) + '</span>';
+    b.onclick = () => {
+      $('#nethost').value = d.host;
+      netMsg('找到 ' + d.name + '（' + d.host + '）。填上二维码里的 id，然后连接。');
+      ($('#netid') || {}).focus?.();
+    };
+    box.appendChild(b);
+  });
+}
+
+async function netScan() {
+  const btn = $('#netscan');
+  if (btn) btn.disabled = true;
+  netMsg('正在扫描本网段…（约 254 个地址，最多十几秒）');
+  try {
+    const known = (() => {
+      try { return JSON.parse(localStorage.getItem('t5.known') || '[]'); } catch (_) { return []; }
+    })();
+    const r = await T5Net.scan({ known });
+    if (r.error) { netMsg(r.error, 'bad'); return; }
+    netRenderList(r.devices);
+    netMsg(r.devices.length
+      ? '找到 ' + r.devices.length + ' 台设备，点一个填入地址。'
+      : '这个网段没有应答的设备。确认设备和这台机器在同一 Wi-Fi，或直接填地址。',
+    r.devices.length ? 'ok' : '');
+  } catch (e) {
+    netMsg('扫描失败：' + (e.message || e), 'bad');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function rememberDevice(host) {
+  try {
+    const list = JSON.parse(localStorage.getItem('t5.known') || '[]')
+      .filter((d) => d && d.host !== host);
+    list.unshift({ host });
+    localStorage.setItem('t5.known', JSON.stringify(list.slice(0, 8)));
+  } catch (_) {}
+}
+
+async function netConnect(host, id) {
+  host = (host || '').trim();
+  id = (id || '').trim();
+  if (!host) { netMsg('先填设备地址，例如 192.168.31.44', 'bad'); return; }
+  if (!/^[A-Za-z0-9_-]{16}$/.test(id)) {
+    netMsg('id 应该是 16 位字符，扫码后地址栏里的 ?id= 就是它。', 'bad');
+    return;
+  }
+  const btn = $('#netgo');
+  if (btn) btn.disabled = true;
+  netMsg('正在用 id 验证…');
+  try {
+    const info = await T5Net.info(host, id);
+    if (info.w !== PANEL_W || info.h !== PANEL_H) {
+      throw new Error('面板不符：' + info.w + 'x' + info.h);
+    }
+    netDev = { host, name: info.device || 'T5' };
+    netDevId = id;
+    deviceSupportsScript = !!info.script;
+    adoptDeviceBoard(netDev.name);
+    rememberDevice(host);
+    $('#devname').textContent = info.device || 'T5';
+    $('#exit').hidden = false;
+    $('#connect').disabled = true;
+    $('#connect').textContent = '已连接';
+    $('#nethost').value = host;
+    $('#netid').value = id;
+    setDot('on');
+    netMsg('✓ 已连接 ' + netDev.name + '（' + host + '）· 信号 ' + info.rssi + ' dBm', 'ok');
+    setStatus('WiFi 已连接 ' + netDev.name + '，可以发送位图或推送脚本');
+    syncBtButtons();
+  } catch (e) {
+    netDev = null; netDevId = '';
+    setDot('');
+    const m = String(e.message || e);
+    netMsg(m === 'id'
+      ? 'id 不对：二维码上那 16 位才是凭据。'
+      : '连接失败：' + m + ' ' + (window.T5Net ? T5Net.protocolHint() : ''), 'bad');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function netDisconnect() {
+  netDev = null; netDevId = '';
+  deviceSupportsScript = false;
+  $('#devname').textContent = '未连接';
+  $('#exit').hidden = true;
+  $('#connect').disabled = false;
+  $('#connect').textContent = '连接设备';
+  setDot('');
+  netMsg('已断开');
+  syncBtButtons();
+}
+
 async function disconnectDevice() {
+  if (netDev) { netDisconnect(); return; }
   try { if (btDevice && btDevice.gatt.connected) btDevice.gatt.disconnect(); }
   catch (e) { setStatus('断开失败：' + e.message, 'bad'); }
 }
 
 function downloadPng() {
   const a = document.createElement('a');
-  a.download = 't5-airpage-' + state.template + '-' + state.orientation + '.png';
+  a.download = (isSticky() ? 'sticky' : 't5') + '-airpage-' + state.template + '-' + state.orientation + '.png';
   a.href = preview.toDataURL('image/png');
   a.click();
 }
@@ -1228,10 +1523,31 @@ async function boot() {
   syncTplButtons();
 
   $('#connect').onclick = connect;
+  $('#netconnect').onclick = () => netPanelVisible($('#netpanel').hidden);
+  $('#netscan').onclick = netScan;
+  $('#netgo').onclick = () => netConnect($('#nethost').value, $('#netid').value);
   $('#send').onclick = sendImage;
   $('#exit').onclick = disconnectDevice;
   $('#download').onclick = downloadPng;
   $$('#orient button').forEach(b => b.onclick = () => setOrientation(b.dataset.orient));
+  $$('#board button').forEach(b => b.onclick = () => setBoard(b.dataset.board));
+  try {
+    const savedBoard = localStorage.getItem('t5.board');
+    if (savedBoard === 'sticky' || savedBoard === 't5') state.board = savedBoard;
+  } catch (_) {}
+  const qBoard = new URLSearchParams(location.search).get('board');
+  if (qBoard === 'sticky' || qBoard === 't5') state.board = qBoard;
+  updateBoardButtons();
+
+  /* A QR link (?host=…&id=…) connects by itself; the token is in the URL
+     because that is how the e-paper hands it over. */
+  const fromQr = window.T5Net ? T5Net.fromUrl() : null;
+  if (fromQr) {
+    netPanelVisible(true);
+    $('#nethost').value = fromQr.host;
+    $('#netid').value = fromQr.id;
+    netConnect(fromQr.host, fromQr.id);
+  }
 
   const compat = $('#compat');
   if (!navigator.bluetooth) {
@@ -1241,7 +1557,7 @@ async function boot() {
     compat.classList.add('bad');
     compat.textContent = '当前不是安全上下文。Web Bluetooth 需要 HTTPS 或 localhost。';
   } else {
-    compat.textContent = 'Web Bluetooth 已就绪。设备开机即广播，点“连接 T5”。';
+    compat.textContent = 'Web Bluetooth 已就绪。设备开机即广播，点“连接设备”。';
   }
   $('#secure').textContent = window.isSecureContext ? 'secure context' : 'insecure context';
 
@@ -1276,6 +1592,7 @@ async function boot() {
 
   window.__t5editor = {
     state, templates, render, crc32, W, H, PANEL_W, PANEL_H, STRIDE,
+    STICKY_W, STICKY_H, isSticky, setBoard,
     fontSizes: FONT_SIZES, textWidth, glyph,
     songReady: () => songReady,
     getPacked: () => packed,

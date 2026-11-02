@@ -1,6 +1,7 @@
 # AirPage BLE editor
 
-Static Web Bluetooth client for the T5 V2.3 (122×250 1-bit panel).
+Static Web Bluetooth / LAN client for the T5 V2.3 (122×250) and Seeed Sticky
+(480×800 portrait logical page, 122×250 content at 2x).
 
 ## Local test
 
@@ -14,6 +15,42 @@ Web Bluetooth requires a secure context. localhost is accepted on the same
 machine; a phone must use HTTPS. The cert.pem/key.pem files are only for a local
 self-signed test and are ignored by git.
 
+## WiFi transport (branch wifi-mqtt)
+
+Besides Web Bluetooth, the editor can push over the LAN. The device runs a small
+HTTP API and prints a QR code containing its address and a 16-char id:
+
+    http://<device-ip>/?id=<16 chars>&w=122&h=250&mode=1bit
+
+That id is both identity and secret (same shape AirPage's editor expects,
+`^[A-Za-z0-9_-]{16}$`). The editor takes it from `?host=&id=` on its own URL, or
+from the WiFi panel (scan / paste). Requests carry it as the `X-T5-Id` header.
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/ping` | no | scan probe: `{"magic":"T5AP","device":…}` |
+| `GET /api/info` | id | panel, RSSI, heap, current frame hash |
+| `POST /api/image` | id | multipart field `image`, exactly 4000 bytes |
+| `POST /api/script` | id | multipart field `script`, <= 4096 bytes |
+| `POST /api/run` | id | rerun the stored source |
+| `GET /api/screen?v=net\|image\|qr` | id | switch what the panel shows |
+
+Two things that will bite:
+
+- **https pages can reach the LAN in current Chrome, but not everywhere.**
+  Measured on Chrome 156: a page on `https://…` fetched `http://192.168.31.118`
+  successfully (Chrome's Local Network Access replaced the old blanket
+  mixed-content rule; the device answers the preflight with
+  `Access-Control-Allow-Private-Network: true`). Safari and older Firefox still
+  block it, so the safe recipe stays: serve the editor over plain http on the
+  LAN — `python3 -m http.server 8010 --bind 0.0.0.0 --directory web`, then open
+  `http://<your-lan-ip>:8010/`.
+- **Uploads are multipart**, because the device's WebServer only exposes binary
+  bodies through the multipart parser (a raw body is also NUL-trimmed).
+
+Scanning is a probe, not mDNS: a page cannot do mDNS or UDP, so it fetches
+`/api/ping` across the /24 it is served from, 24 at a time, 700 ms timeout.
+
 ## Deploy
 
 Published copy: <https://xuchdeid.github.io/t5-airpage/> (GitHub Pages, repository
@@ -26,6 +63,19 @@ EDITOR_URL in src/main.cpp to that URL and rebuild; the device QR points at it.
 
 The QR uses version 4 / ECC low, so keep the URL short (roughly 78 bytes). A longer
 URL needs a larger QR version and a smaller module scale in showQrScreen().
+
+## Device profiles
+
+The toolbar has **T5 2.13"** and **Sticky 3.97"** buttons. A connected device
+whose name starts with `STK` switches automatically to Sticky; a name starting
+with `T5` switches back. The choice is remembered in `localStorage`, and
+`?board=sticky` / `?board=t5` selects it directly.
+
+The transport is still the same 4,000-byte 122×250 1-bit frame. Sticky's preview
+is its real 480×800 portrait page: the 122×250 frame is drawn at 2x and centred
+(244×500 at 118,150), exactly like the firmware. Sticky is portrait-only; the
+landscape button is disabled. "Download PNG" exports the 480×800 page for
+Sticky, while send/script operations still use the 4,000-byte payload.
 
 ## Orientation
 

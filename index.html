@@ -4,19 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#18181b">
-<title>AirPage BLE · T5</title>
-<link rel="stylesheet" href="style.css?v=55">
+<title>AirPage · T5 / Sticky</title>
+<link rel="stylesheet" href="style.css?v=56">
 </head>
 <body>
 <header class="top">
   <div class="brand">
     <span class="mark">A</span>
-    <div><strong>AirPage</strong><small>Bluetooth edition</small></div>
+    <div><strong>AirPage</strong><small>Bluetooth / WiFi edition</small></div>
   </div>
   <div class="devicebar">
     <span id="dot" class="dot"></span>
     <span id="devname">未连接</span>
-    <button id="connect" class="btn primary">连接 T5</button>
+    <button id="connect" class="btn primary">连接设备</button>
+    <button id="netconnect" class="btn ghost">WiFi</button>
     <button id="exit" class="btn ghost" hidden>断开</button>
   </div>
 </header>
@@ -25,10 +26,24 @@
   <aside class="templates">
     <h2>场景</h2>
     <div id="tplList"></div>
-    <p class="hint">122 × 250 设备帧缓冲 · 1-bit<br>照片与每日一句支持横竖屏；JS 画布固定竖屏，使用设备同一份 12px 大字库（31K）和 API 模拟；同一份源码可发位图或推送到 T5。</p>
+    <p class="hint" id="hint">122 × 250 设备帧缓冲 · 1-bit<br>照片与每日一句支持横竖屏；JS 画布固定竖屏，使用设备同一份 12px 大字库（31K）和 API 模拟；同一份源码可发位图或推送到 T5。</p>
   </aside>
 
   <section class="stage">
+    <div id="netpanel" class="netpanel" hidden>
+      <div class="netrow">
+        <button id="netscan" class="btn ghost">扫描局域网</button>
+        <input id="nethost" placeholder="设备地址 192.168.31.44" autocomplete="off" spellcheck="false">
+        <input id="netid" placeholder="二维码里的 id（16 位）" autocomplete="off" spellcheck="false">
+        <button id="netgo" class="btn primary">通过 WiFi 连接</button>
+      </div>
+      <div id="netlist" class="netlist"></div>
+      <p id="netmsg" class="nethint">扫设备上的二维码，或直接填地址。id 是二维码里的 16 位串，用来认证。</p>
+    </div>
+    <div class="viewbar" id="board" role="group" aria-label="设备型号">
+      <button data-board="t5" class="active">T5 2.13"</button>
+      <button data-board="sticky">Sticky 3.97"</button>
+    </div>
     <div class="viewbar" id="orient" role="group" aria-label="屏幕方向">
       <button data-orient="portrait" class="active">竖屏 122×250</button>
       <button data-orient="landscape">横屏 250×122</button>
@@ -37,10 +52,10 @@
       <canvas id="preview" width="122" height="250" aria-label="e-paper preview"></canvas>
     </div>
     <div class="sendbar">
-      <div class="statusline"><span id="status">设备开机即广播，点“连接 T5”</span></div>
+      <div class="statusline"><span id="status">设备开机即广播，点“连接设备”</span></div>
       <div class="actions">
         <button id="download" class="btn ghost" title="下载 1-bit PNG">下载 PNG</button>
-        <button id="send" class="btn primary" disabled>发送到 T5</button>
+        <button id="send" class="btn primary" disabled>发送到设备</button>
       </div>
     </div>
     <div class="progress"><i id="bar"></i></div>
@@ -54,12 +69,13 @@
 </main>
 
 <footer class="foot">
-  <span>Web Bluetooth · 无云端 · 无 WiFi</span>
+  <span>Web Bluetooth / 局域网 HTTP · 无云端</span>
   <span id="secure"></span>
 </footer>
 
-<script src="quotes.js?v=55"></script>
-<script src="device-paper.js?v=55"></script>
-<script src="app.js?v=55"></script>
+<script src="quotes.js?v=56"></script>
+<script src="device-paper.js?v=56"></script>
+<script src="net.js?v=56"></script>
+<script src="app.js?v=56"></script>
 </body>
 </html>
