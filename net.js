@@ -164,9 +164,12 @@
 
   function info(host, id) { return req(host, id, '/api/info'); }
 
-  function sendImage(host, id, bytes) {
-    if (!bytes || bytes.length !== 4000) {
-      return Promise.reject(new Error('位图必须是 4000 字节，实际 ' + (bytes ? bytes.length : 0)));
+  function sendImage(host, id, bytes, expected) {
+    if (!bytes || !bytes.length) {
+      return Promise.reject(new Error('位图为空'));
+    }
+    if (expected && bytes.length !== expected) {
+      return Promise.reject(new Error('位图必须是 ' + expected + ' 字节，实际 ' + bytes.length));
     }
     /* multipart, not a raw body: the device's WebServer only exposes binary
        uploads through the multipart parser, and a raw body would also be

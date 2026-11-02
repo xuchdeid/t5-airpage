@@ -5,13 +5,18 @@ const SERVICE = '5f9b0001-7a6b-4c2d-9e8f-1234567890ab';
 const CTRL    = '5f9b0002-7a6b-4c2d-9e8f-1234567890ab';
 const DATA    = '5f9b0003-7a6b-4c2d-9e8f-1234567890ab';
 const INFO    = '5f9b0004-7a6b-4c2d-9e8f-1234567890ab';
-const PANEL_W = 122, PANEL_H = 250, STRIDE = 16;
-const STICKY_W = 480, STICKY_H = 800;   /* logical portrait preview */
-const IMAGE_BYTES = STRIDE * PANEL_H;
+/* Physical/logical profile.  T5 remains 122x250; Sticky is a native
+   480x800 portrait page (48,000-byte 1-bit frame).  PANEL_W/PANEL_H are the
+   T5 baseline used by the BLE protocol and the 90-degree packer. */
+const PANEL_W = 122, PANEL_H = 250, PANEL_STRIDE = 16;
+const STICKY_W = 480, STICKY_H = 800;
+const DESIGN_W = 122, DESIGN_H = 250;
 const SCRIPT_MAX = 4096;
 const CMD_BEGIN_SCRIPT = 0x10, CMD_COMMIT_SCRIPT = 0x12;
 const CMD_RUN_SCRIPT = 0x13, CMD_ABORT_SCRIPT = 0x14;
 let W = PANEL_W, H = PANEL_H;
+let STRIDE = PANEL_STRIDE;
+let IMAGE_BYTES = STRIDE * H;
 
 const DEVICE_SCRIPT_DEFAULT = (window.T5Paper && T5Paper.samples.hello.code) ||
   'paper.clear(0);\npaper.text(6, 6, "AirPage", 1, 1);\npaper.commit();';
@@ -72,6 +77,18 @@ const state = {
 
 /* ---------- device profile ---------- */
 function isSticky() { return state.board === 'sticky'; }
+/* Native Sticky output uses the existing 122x250 editorial layout at 3x,
+   centred on the 480x800 page.  T5 is 1:1. */
+function designScale() { return isSticky() && state.template === 'js' ? 3 : 1; }
+function designOffset() {
+  const s = designScale();
+  if (s === 1) return { s: 1, x: 0, y: 0 };
+  return {
+    s,
+    x: Math.floor((W - DESIGN_W * s) / 2),
+    y: Math.floor((H - DESIGN_H * s) / 2)
+  };
+}
 function boardFromName(name) {
   const n = String(name || '').toUpperCase();
   if (n.startsWith('STK')) return 'sticky';
@@ -407,7 +424,14 @@ function wrapText(str, maxWidth, size = 12) {
 
 /* ---------- drawing helpers ---------- */
 function fillWhite(ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
-function hline(ctx, x1, x2, y) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y + .5); ctx.lineTo(x2, y + .5); ctx.stroke(); }
+function hline(ctx, x1, x2, y) {
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = isSticky() ? 3 : 1;
+  ctx.beginPath();
+  ctx.moveTo(x1, y + ctx.lineWidth / 2);
+  ctx.lineTo(x2, y + ctx.lineWidth / 2);
+  ctx.stroke();
+}
 
 /* ---------- JS Lab ---------- */
 let jsCache = { code: null, bits: null, packed: null, hash: 0, error: null };
@@ -483,15 +507,25 @@ function executeJS() {
 
 function drawJS(ctx) {
   fillWhite(ctx);
-  if (!jsCache.bits || jsCache.code !== state.jsCode || jsCache.bits.length !== W * H) executeJS();
-  const b = jsCache.bits || new Uint8Array(W * H);
-  const id = ctx.createImageData(W, H);
+  if (!jsCache.bits || jsCache.code !== state.jsCode ||
+      jsCache.bits.length !== DESIGN_W * DESIGN_H) executeJS();
+  const b = jsCache.bits || new Uint8Array(DESIGN_W * DESIGN_H);
+  /* The device JS runtime is still 122x250.  Put that frame in its own
+     canvas and let the native render transform scale it; putImageData()
+     would bypass the transform. */
+  const tmp = document.createElement('canvas');
+  tmp.width = DESIGN_W; tmp.height = DESIGN_H;
+  const tctx = tmp.getContext('2d');
+  const id = tctx.createImageData(DESIGN_W, DESIGN_H);
   for (let i = 0; i < b.length; i++) {
     const v = b[i] ? 0 : 255;
-    id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v;
-    id.data[i * 4 + 3] = 255;
+    const p = i * 4;
+    id.data[p] = id.data[p + 1] = id.data[p + 2] = v;
+    id.data[p + 3] = 255;
   }
-  ctx.putImageData(id, 0, 0);
+  tctx.putImageData(id, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(tmp, 0, 0);
 }
 
 function runJS() {
@@ -502,7 +536,8 @@ function runJS() {
   } else {
     const h = jsCache.hash ? " · #" + (jsCache.hash >>> 0).toString(16) : "";
     const over = deviceByteLength() > SCRIPT_MAX;
-    setStatus("模拟运行完成 · 122×250 · 与设备同一 API/字库" + h +
+    const dims = isSticky() ? '480×800 预览（JS 122×250）' : '122×250';
+    setStatus("模拟运行完成 · " + dims + " · 与设备同一 API/字库" + h +
       (over ? " · 超过 4096 B，只能发位图" : ""), over ? "bad" : "ok");
   }
 }
@@ -559,8 +594,12 @@ function dailyByline(q) {
   return '—— ' + [q.author, q.source].filter(Boolean).join(' ');
 }
 
-function fitDaily(text, maxW, maxH) {
-  const sizes = [24, 22, 20, 18, 16, 14, 12, 10];
+function fitDaily(text, maxW, maxH, scale = 1) {
+  /* Native Sticky uses real 480-wide type sizes instead of stretching 10px
+     glyphs.  The available bitmap sizes are 10-48px. */
+  const sizes = scale > 1
+    ? [48, 32, 28, 24, 20, 18, 16, 14, 12, 10]
+    : [24, 22, 20, 18, 16, 14, 12, 10];
   for (const size of sizes) {
     const lines = wrapText(text, maxW, size);
     const lineHeight = Math.max(size + 5, Math.round(size * 1.4));
@@ -568,9 +607,9 @@ function fitDaily(text, maxW, maxH) {
       return { size, lines, lineHeight, ascent: ascentFor(size) };
     }
   }
-  const size = 10;
+  const size = sizes[sizes.length - 1];
   const lines = wrapText(text, maxW, size);
-  return { size, lines, lineHeight: 15, ascent: ascentFor(size) };
+  return { size, lines, lineHeight: Math.max(size + 3, Math.round(size * 1.4)), ascent: ascentFor(size) };
 }
 
 function drawDaily(ctx) {
@@ -579,22 +618,24 @@ function drawDaily(ctx) {
   const landscape = state.orientation === 'landscape';
   const previousFont = activeFont;
   activeFont = 'serif';
+  const s = isSticky() ? Math.min(W / DESIGN_W, H / DESIGN_H) : 1;
 
-  const margin = landscape ? 10 : 9;
-  const left = landscape ? 14 : 13;
-  const right = landscape ? W - 10 : W - margin;
+  const margin = Math.round((landscape ? 10 : 9) * s);
+  const left = Math.round((landscape ? 14 : 13) * s);
+  const right = landscape ? W - Math.round(10 * s) : W - margin;
   const maxW = right - left;
-  const bodyTop = landscape ? 36 : 38;
-  const bodyBottom = landscape ? H - 30 : H - 40;
+  const bodyTop = Math.round((landscape ? 36 : 38) * s);
+  const bodyBottom = landscape ? H - Math.round(30 * s) : H - Math.round(40 * s);
 
-  text(ctx, '每日一句', margin, 15, 10);
-  text(ctx, dailyDateLabel(info.dateKey), W - margin, 15, 10, 'right');
-  hline(ctx, margin, W - margin, 24);
+  text(ctx, '每日一句', margin, Math.round(15 * s), Math.round(10 * s));
+  text(ctx, dailyDateLabel(info.dateKey), W - margin, Math.round(15 * s), Math.round(10 * s), 'right');
+  hline(ctx, margin, W - margin, Math.round(24 * s));
 
   ctx.fillStyle = '#000';
-  ctx.fillRect(4, bodyTop, 2, Math.max(1, bodyBottom - bodyTop));
+  ctx.fillRect(Math.round(4 * s), bodyTop, Math.max(2, Math.round(2 * s)),
+               Math.max(1, bodyBottom - bodyTop));
 
-  const fit = fitDaily(info.quote.text, maxW, bodyBottom - bodyTop);
+  const fit = fitDaily(info.quote.text, maxW, bodyBottom - bodyTop, s);
   const blockH = fit.lines.length * fit.lineHeight;
   const start = bodyTop + Math.max(0, (bodyBottom - bodyTop - blockH) / 2);
   fit.lines.forEach((line, i) => {
@@ -602,11 +643,11 @@ function drawDaily(ctx) {
   });
 
   let by = dailyByline(info.quote);
-  let bySize = 10;
-  if (textWidth(by, bySize) > maxW) bySize = 8;
+  let bySize = Math.round(10 * s);
+  if (textWidth(by, bySize) > maxW) bySize = Math.round(8 * s);
   by = fitText(by, maxW, bySize);
-  text(ctx, by, left, H - (landscape ? 12 : 17), bySize);
-  hline(ctx, left, right, H - (landscape ? 24 : 29));
+  text(ctx, by, left, H - Math.round((landscape ? 12 : 17) * s), bySize);
+  hline(ctx, left, right, H - Math.round((landscape ? 24 : 29) * s));
 
   activeFont = previousFont;
 }
@@ -628,24 +669,31 @@ const templates = {
 
 function drawPhoto(ctx) {
   fillWhite(ctx);
+  const s = isSticky() ? Math.min(W / DESIGN_W, H / DESIGN_H) : 1;
   if (!state.photo) {
-    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.strokeRect(8, 8, W - 16, H - 16); ctx.setLineDash([]);
-    text(ctx, '上传一张照片', W / 2, H / 2 - 4, 12, 'center');
-    text(ctx, '自动裁切为 ' + W + '×' + H, W / 2, H / 2 + 18, 12, 'center');
+    const lw = isSticky() ? 3 : 1;
+    const pad = Math.round(8 * s);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = lw; ctx.setLineDash([3, 3]);
+    ctx.strokeRect(pad, pad, W - pad * 2, H - pad * 2); ctx.setLineDash([]);
+    const ts = Math.min(32, Math.round(12 * s));
+    text(ctx, '上传一张照片', W / 2, H / 2 - Math.round(4 * s), ts, 'center');
+    text(ctx, '自动裁切为 ' + W + '×' + H, W / 2, H / 2 + Math.round(18 * s), ts, 'center');
     return;
   }
   const img = state.photo;
-  const s = Math.max(W / img.width, H / img.height);
-  const dw = img.width * s, dh = img.height * s;
+  const crop = Math.max(W / img.width, H / img.height);
+  const dw = img.width * crop, dh = img.height * crop;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
   ctx.imageSmoothingEnabled = false;
 
   const cap = state.caption.trim();
   if (cap) {
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, H - 20, W, 20);
-    text(ctx, fitText(cap, W - 12, 12), W / 2, H - 5, 12, 'center');
+    const capH = Math.round(20 * s);
+    const capSize = Math.min(32, Math.round(12 * s));
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, H - capH, W, capH);
+    text(ctx, fitText(cap, W - Math.round(12 * s), capSize), W / 2,
+         H - Math.round(5 * s), capSize, 'center');
   }
 }
 
@@ -655,11 +703,30 @@ let bits = new Uint8Array(W * H);
 
 function render() {
   if (!fontReady) return;
+  const nativeW = W, nativeH = H;
+  const lay = designOffset();
   bctx.setTransform(1, 0, 0, 1, 0, 0);
   bctx.imageSmoothingEnabled = false;
-  bctx.fillStyle = '#fff'; bctx.fillRect(0, 0, W, H);
-  (templates[state.template] || templates.photo).draw(bctx);
-  const img = bctx.getImageData(0, 0, W, H);
+  bctx.fillStyle = '#fff'; bctx.fillRect(0, 0, nativeW, nativeH);
+  if (isSticky() && state.template !== 'js') {
+    /* Daily/photo reflow to the real 480x800 page. */
+    W = nativeW; H = nativeH;
+    (templates[state.template] || templates.photo).draw(bctx);
+  } else {
+    /* JS still renders into the device's 122x250 framebuffer; scale it 3x
+       into the native page. */
+    bctx.save();
+    bctx.translate(lay.x, lay.y);
+    bctx.scale(lay.s, lay.s);
+    W = DESIGN_W; H = DESIGN_H;
+    try {
+      (templates[state.template] || templates.photo).draw(bctx);
+    } finally {
+      W = nativeW; H = nativeH;
+      bctx.restore();
+    }
+  }
+  const img = bctx.getImageData(0, 0, nativeW, nativeH);
   const dither = state.template === 'photo' ? state.dither : 'threshold';
   bits = quantize(img, dither);
   packed = pack(bits);
@@ -726,26 +793,8 @@ function pack(viewBits) {
 }
 
 function drawPreview() {
-  /* Sticky shows the same 122x250 frame as T5, but the panel is a portrait
-     480x800 page and the firmware draws the frame at 2x in the centre. */
-  if (isSticky()) {
-    const id = bitCtx.createImageData(W, H);
-    for (let i = 0; i < bits.length; i++) {
-      const v = bits[i] ? 0 : 255;
-      const p = i * 4;
-      id.data[p] = id.data[p + 1] = id.data[p + 2] = v;
-      id.data[p + 3] = 255;
-    }
-    bitCtx.putImageData(id, 0, 0);
-    pctx.setTransform(1, 0, 0, 1, 0, 0);
-    pctx.imageSmoothingEnabled = false;
-    pctx.fillStyle = '#fff';
-    pctx.fillRect(0, 0, STICKY_W, STICKY_H);
-    const dw = W * 2, dh = H * 2;
-    pctx.drawImage(bitCanvas, 0, 0, W, H,
-                   (STICKY_W - dw) / 2, (STICKY_H - dh) / 2, dw, dh);
-    return;
-  }
+  /* The preview is now the native wire frame: 122x250 on T5, 480x800 on
+     Sticky.  No second scaling step is applied in the browser. */
   const id = pctx.createImageData(W, H);
   for (let i = 0; i < bits.length; i++) {
     const v = bits[i] ? 0 : 255;
@@ -771,12 +820,17 @@ function updateBoardButtons() {
   const hint = $('#hint');
   if (!hint) return;
   hint.innerHTML = isSticky()
-    ? 'Sticky 3.97" · 480 × 800 竖屏整页预览<br>内容仍是 122 × 250，按 2× 居中发送；照片、每日一句和 JS 共用同一套 4000 字节协议。'
+    ? 'Sticky 3.97" · 480 × 800 原生帧<br>照片与每日一句按 480 × 800 重排，发送 48,000 字节；JS 设备画布仍为 122 × 250，按 3× 居中预览。'
     : '122 × 250 设备帧缓冲 · 1-bit<br>照片与每日一句支持横竖屏；JS 画布固定竖屏，使用设备同一份 12px 大字库（31K）和 API 模拟；同一份源码可发位图或推送到 T5。';
 }
 
 function setBoard(board) {
-  const next = board === 'sticky' ? 'sticky' : 't5';
+  let next = board === 'sticky' ? 'sticky' : 't5';
+  const connected = typeof netDev !== 'undefined' && netDev ? boardFromName(netDev.name) : null;
+  if (connected && connected !== next) {
+    setStatus('已连接 ' + netDev.name + '，画布跟随设备实际尺寸', 'bad');
+    next = connected;
+  }
   if (state.board === next) { updateBoardButtons(); return; }
   state.board = next;
   if (next === 'sticky' && state.orientation === 'landscape') state.orientation = 'portrait';
@@ -796,8 +850,18 @@ function setOrientation(o) {
     o = 'portrait';
   }
   state.orientation = o === 'landscape' ? 'landscape' : 'portrait';
-  W = state.orientation === 'landscape' ? PANEL_H : PANEL_W;
-  H = state.orientation === 'landscape' ? PANEL_W : PANEL_H;
+  if (isSticky()) {
+    W = STICKY_W; H = STICKY_H;
+  } else {
+    W = state.orientation === 'landscape' ? PANEL_H : PANEL_W;
+    H = state.orientation === 'landscape' ? PANEL_W : PANEL_H;
+  }
+  /* The wire frame is always portrait: 122x250 on T5 (even when the editor
+     is landscape) and 480x800 on Sticky. */
+  STRIDE = Math.ceil((isSticky() ? STICKY_W : PANEL_W) / 8);
+  IMAGE_BYTES = STRIDE * (isSticky() ? STICKY_H : PANEL_H);
+  bits = new Uint8Array(W * H);
+  packed = new Uint8Array(IMAGE_BYTES);
   base.width = W; base.height = H;
   bctx = base.getContext('2d', { willReadFrequently: true });
   bitCanvas.width = W; bitCanvas.height = H;
@@ -871,7 +935,7 @@ function renderControls() {
     h += '<p class="tiny">本地语料，共 ' + DAILY_QUOTES.length + ' 句；按日期确定性选择，点按钮切换。不会联网，也不会上传文字。</p>';
   } else if (state.template === 'js') {
     const samples = (window.T5Paper && T5Paper.samples) || {};
-    h += '<p class="tiny">这里是设备的 JS 模拟器：浏览器按设备同一套 API、同一份 12px 大字库（31K）、同一个 122×250 1-bit 帧缓冲运行；Sticky 只改变整页预览。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
+    h += '<p class="tiny">这里是设备的 JS 模拟器：浏览器按设备同一套 API、同一份 12px 大字库（31K）、同一个 122×250 1-bit 帧缓冲运行；Sticky 会把结果按 3× 放入 480×800 原生帧。Run 预览，发送位图，或把同一份源码推送到设备执行。</p>';
     h += '<div class="row"><label>用例</label><select id="jsExample">' +
       Object.entries(samples).map(([k, s]) => '<option value="' + k + '">' + esc(s.name) + '</option>').join('') +
       '<option value="custom">自定义</option>' +
@@ -880,7 +944,7 @@ function renderControls() {
     h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span id="jsBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
     h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span class="tiny">载入 .js 覆盖当前脚本</span></div>';
     h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button></div>';
-    h += '<p class="tiny">API：paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。只有一种 12px 大字库（31K 字形），lineHeight 返回 13；scale 参数保留但被忽略。脚本固定竖屏 122×250。连接 T5 后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。脚本在主线程执行，死循环会卡住页面。</p>';
+    h += '<p class="tiny">API：paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。只有一种 12px 大字库（31K 字形），lineHeight 返回 13；scale 参数保留但被忽略。脚本固定竖屏 122×250。连接设备后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。脚本在主线程执行，死循环会卡住页面。</p>';
   }
   c.innerHTML = h;
 
@@ -1156,7 +1220,7 @@ async function sendImageWifi() {
   setBtBusy(true); setDot('busy'); setProgress(20);
   try {
     setStatus('通过 WiFi 发送 ' + IMAGE_BYTES + ' 字节…');
-    const r = await T5Net.sendImage(netDev.host, netDevId, packed);
+    const r = await T5Net.sendImage(netDev.host, netDevId, packed, IMAGE_BYTES);
     setProgress(100); setDot('on');
     setStatus('✓ 已显示在 ' + netLabel() + '（' + (r.hash || '') + '）', 'ok');
   } catch (e) {
@@ -1213,6 +1277,10 @@ async function runStoredWifi() {
 async function sendImage() {
   if (!linkConnected()) { setStatus('请先连接设备（蓝牙或 WiFi）', 'bad'); return; }
   if (netDev) return sendImageWifi();
+  if (isSticky()) {
+    setStatus('Sticky 使用 WiFi 传输 480×800 原生帧；蓝牙协议仅用于 T5 122×250', 'bad');
+    return;
+  }
   if (state.template === 'js') {
     if (state.orientation !== 'portrait') setOrientation('portrait');
     executeJS();
@@ -1466,13 +1534,21 @@ async function netConnect(host, id) {
   setDot('busy');
   try {
     const info = await T5Net.info(host, id);
-    if (info.w !== PANEL_W || info.h !== PANEL_H) {
-      throw new Error('面板不符：' + info.w + 'x' + info.h);
+    const name = info.device || 'T5';
+    const board = boardFromName(name) || state.board;
+    const expW = board === 'sticky' ? STICKY_W : PANEL_W;
+    const expH = board === 'sticky' ? STICKY_H : PANEL_H;
+    const expBytes = board === 'sticky' ? 48000 : 4000;
+    if (info.w !== expW || info.h !== expH ||
+        (info.bytes && info.bytes !== expBytes)) {
+      throw new Error('固件帧尺寸不符：设备 ' + info.w + '×' + info.h +
+        (info.bytes ? ' / ' + info.bytes + ' B' : '') +
+        '，编辑器需要 ' + expW + '×' + expH + ' / ' + expBytes + ' B');
     }
-    netDev = { host, name: info.device || 'T5' };
+    netDev = { host, name };
     netDevId = id;
     deviceSupportsScript = !!info.script;
-    adoptDeviceBoard(netDev.name);
+    adoptDeviceBoard(name);
     rememberDevice(host);
     $('#devname').textContent = info.device || 'T5';
     $('#exit').hidden = false;
@@ -1607,6 +1683,9 @@ async function boot() {
   window.__t5editor = {
     state, templates, render, crc32, W, H, PANEL_W, PANEL_H, STRIDE,
     STICKY_W, STICKY_H, isSticky, setBoard,
+    getDims: () => ({ w: W, h: H, stride: STRIDE, bytes: IMAGE_BYTES,
+                      board: state.board, scale: designScale(),
+                      offset: designOffset() }),
     fontSizes: FONT_SIZES, textWidth, glyph,
     songReady: () => songReady,
     getPacked: () => packed,
