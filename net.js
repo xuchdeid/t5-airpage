@@ -179,14 +179,16 @@
     return req(host, id, '/api/image', { method: 'POST', form: fd, timeout: 15000 });
   }
 
-  function pushScript(host, id, source) {
+  function pushScript(host, id, source, data) {
     if (!source || source.length === 0) return Promise.reject(new Error('脚本为空'));
     if (source.length > 4096) {
       return Promise.reject(new Error('脚本 ' + source.length + ' B，超过 4096 B 上限'));
     }
     var fd = new FormData();
     fd.append('script', new Blob([source], { type: 'text/plain' }), 'device.js');
-    return req(host, id, '/api/script', { method: 'POST', form: fd, timeout: 10000 });
+    /* Optional JSON blob -> paper.data on the device. */
+    if (data) fd.append('data', typeof data === 'string' ? data : JSON.stringify(data));
+    return req(host, id, '/api/script', { method: 'POST', form: fd, timeout: 12000 });
   }
 
   function runStored(host, id) { return req(host, id, '/api/run', { method: 'POST' }); }

@@ -76,6 +76,7 @@ const state = {
   dailyOffset: 0,
   jsExample: jsSavedExample,
   jsCode: jsSavedCode,
+  jsData: (function () { try { return localStorage.getItem('t5.device.data') || ''; } catch (e) { return ''; } })(),
 };
 
 /* ---------- device profile ---------- */
@@ -441,6 +442,7 @@ let jsCache = { code: null, bits: null, packed: null, hash: 0, error: null };
 
 function saveJSCode() {
   try { localStorage.setItem('t5.device.js', state.jsCode); } catch (e) {}
+  try { localStorage.setItem('t5.device.data', state.jsData || ''); } catch (e) {}
 }
 
 function errorFrame(msg) {
@@ -467,6 +469,48 @@ function errorFrame(msg) {
   return paper;
 }
 
+/* Compile the flex demo tree against the current panel and drop the generated
+   device script into the editor.  The device never sees the flex tree -- only
+   clear/fillRect/text/commit (see docs/device-js-api.md). */
+function insertFlexSample() {
+  if (!window.T5Flex || !window.T5Paper || !T5Paper.ready()) {
+    setStatus('布局编译器或字库还没加载好', 'bad');
+    return;
+  }
+  const ui = T5Flex.ui;
+  const native = isSticky();
+  const w = native ? STICKY_W : PANEL_W;
+  const h = native ? STICKY_H : PANEL_H;
+  const probe = T5Paper.create({ canvas: { w: w, h: h } });
+  const scale = native ? 2 : 1;
+  const tree = ui.column({ padding: 8, gap: 6 }, [
+    ui.row({ justify: 'between', align: 'center' }, [
+      ui.text('pi-status', { scale: scale }),
+      ui.text('MQTT', { scale: 1 })
+    ]),
+    ui.divider(),
+    ui.row({ gap: 8, align: 'end' }, [
+      ui.text('52', { scale: 3 }),
+      ui.text('C', { scale: 1, level: 1 })
+    ]),
+    ui.text('负载 0.42 · 内存 61% · 磁盘 38%', { scale: 1 }),
+    ui.spacer(),
+    ui.divider({ level: 2 }),
+    ui.text('更新 12:34', { scale: 1, level: 1 })
+  ]);
+  const out = T5Flex.compile(tree, {
+    w: w, h: h, native: native,
+    measure: function (s, sc) { return probe.textWidth(s, sc); }
+  });
+  state.jsCode = out.source;
+  state.jsExample = 'custom';
+  saveJSCode();
+  render();
+  executeJS();
+  drawPreview();
+  setStatus('已生成 ' + out.ops.length + ' 条绘制指令（' + w + '×' + h + '）', 'ok');
+}
+
 function executeJS() {
   if (!window.T5Paper || !T5Paper.ready()) {
     jsCache = { code: state.jsCode, bits: new Uint8Array(W * H), packed: null, hash: 0,
@@ -479,7 +523,18 @@ function executeJS() {
   if (issue) {
     error = new Error(issue);
   } else {
-    paper = T5Paper.create();
+    let payload;
+    const raw = (state.jsData || '').trim();
+    if (raw) {
+      try { payload = JSON.parse(raw); }
+      catch (e) { error = new Error('data 不是合法 JSON：' + e.message); }
+    }
+    const panelW = isSticky() ? STICKY_W : PANEL_W;
+    const panelH = isSticky() ? STICKY_H : PANEL_H;
+    paper = T5Paper.create({
+      source: state.jsCode, data: payload,
+      panelW: panelW, panelH: panelH, bpp: isSticky() ? 2 : 1
+    });
     try {
       const print = function () {
         const s = Array.prototype.map.call(arguments, String).join(" ");
@@ -497,13 +552,27 @@ function executeJS() {
   if (error) {
     try { paper = errorFrame(error.message || error); } catch (e2) {}
   }
-  if (!paper) paper = T5Paper.create();
+  if (!paper) paper = T5Paper.create({ source: state.jsCode });
+  /* The preview canvas is the panel size; a script may have asked for a
+     smaller canvas (the 122x250 default), so sample it up. */
+  const levels = paper.getLevels();
+  const pw = paper.w, ph = paper.h;
+  const bits = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const sy = Math.min(ph - 1, Math.floor(y * ph / H));
+    for (let x = 0; x < W; x++) {
+      const sx = Math.min(pw - 1, Math.floor(x * pw / W));
+      bits[y * W + x] = levels[sy * pw + sx] < 2 ? 1 : 0;
+    }
+  }
   jsCache = {
     code: state.jsCode,
-    bits: paper.getBits(),
+    bits: bits,
     packed: paper.getPacked(),
     hash: paper.hash || 0,
-    error
+    error,
+    canvasW: pw,
+    canvasH: ph
   };
   return jsCache;
 }
@@ -511,7 +580,7 @@ function executeJS() {
 function drawJS(ctx) {
   fillWhite(ctx);
   if (!jsCache.bits || jsCache.code !== state.jsCode ||
-      jsCache.bits.length !== DESIGN_W * DESIGN_H) executeJS();
+      jsCache.bits.length !== W * H) executeJS();
   const b = jsCache.bits || new Uint8Array(DESIGN_W * DESIGN_H);
   /* The device JS runtime is still 122x250.  Put that frame in its own
      canvas and let the native render transform scale it; putImageData()
@@ -959,10 +1028,11 @@ function renderControls() {
       '<option value="custom">自定义</option>' +
       '</select></div>';
     h += '<div class="row"><label>设备脚本（ES5，≤' + SCRIPT_MAX + ' B）</label><textarea id="jsCode" class="code" rows="17" spellcheck="false" autocapitalize="off" autocorrect="off">' + esc(state.jsCode) + '</textarea></div>';
+    h += '<div class="row"><label>paper.data（JSON，可空）</label><textarea id="jsData" class="code" rows="4" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder=\'{"title":"pi-status"}\'>' + esc(state.jsData || '') + '</textarea></div>';
     h += '<div class="row js-run-row"><button class="btn primary" id="jsRun">▶ Run</button><span id="jsBytes" class="bytecount">' + deviceByteLength() + ' / ' + SCRIPT_MAX + ' B</span></div>';
     h += '<div class="row device-file"><input id="scriptFile" type="file" accept=".js,.txt,text/javascript,application/javascript"><span class="tiny">载入 .js 覆盖当前脚本</span></div>';
-    h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button></div>';
-    h += '<p class="tiny">API：paper.clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit。只有一种 12px 大字库（31K 字形），lineHeight 返回 13；scale 参数保留但被忽略。脚本固定竖屏 122×250。连接设备后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。脚本在主线程执行，死循环会卡住页面。</p>';
+    h += '<div class="row device-actions"><button class="btn primary" id="scriptPush">⇪ 推送脚本</button><button class="btn" id="scriptRun">▶ 运行已存</button><button class="btn" id="jsFlex">⌗ 布局示例</button></div>';
+    h += '<p class="tiny">API：clear / setPixel / fillRect / text / textWidth / lineHeight / width / height / commit，另有 paper.data（JSON 注入）与 paper.screen（真实面板 w/h/bpp）。一种 12px 字库（31K 字形），lineHeight 13；<b>scale 1–3 为整数像素放大</b>；灰度用 {level:0..3}（0 黑 3 白），默认画布仍是 122×250，首行写 //@canvas 480x800 可拿原生 480×800 画布。连接设备后可推送，成功后执行、刷新并保存到 NVS；失败保留上一版。</p>';
   }
   c.innerHTML = h;
 
@@ -998,6 +1068,11 @@ function renderControls() {
     refreshDailyMeta();
     setStatus('已回到今天');
   };
+  const jd = $('#jsData');
+  if (jd) {
+    jd.value = state.jsData || '';
+    jd.addEventListener('input', () => { state.jsData = jd.value; saveJSCode(); });
+  }
   const jc = $('#jsCode');
   if (jc) {
     jc.value = state.jsCode;
@@ -1055,6 +1130,8 @@ function renderControls() {
   if (sp) sp.onclick = pushScript;
   const sr = $('#scriptRun');
   if (sr) sr.onclick = runStoredScript;
+  const fx = $('#jsFlex');
+  if (fx) fx.onclick = insertFlexSample;
   updateDeviceMeta();
   syncBtButtons();
   const d = $('#dither'); if (d) { d.value = state.dither; d.onchange = () => { state.dither = d.value; render(); }; }
@@ -1267,7 +1344,8 @@ async function pushScriptWifi() {
   setBtBusy(true); setDot('busy'); setProgress(20);
   try {
     setStatus('通过 WiFi 推送脚本 ' + source.length + ' 字节…');
-    const r = await T5Net.pushScript(netDev.host, netDevId, source);
+    const dataText = (state.jsData || '').trim();
+    const r = await T5Net.pushScript(netDev.host, netDevId, source, dataText || null);
     setProgress(100); setDot('on');
     setStatus('✓ 脚本已推送并显示在 ' + netLabel() + '（' + (r.hash || '') + '）', 'ok');
   } catch (e) {
