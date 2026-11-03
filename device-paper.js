@@ -13,10 +13,13 @@
   var MAX_W = 480, MAX_H = 800;
   var SCRIPT_MAX = 4096;
   /* Two faces: 12 px for the 122x250 canvas (T5, legacy scripts) and 24 px
-     for the native 480x800 canvas (Sticky, compiler output). */
+     for the native 480x800 canvas (Sticky, compiler output).
+     The host page decides where they live: the editor serves them next to
+     itself ('fonts/'), rp serves them from /t5/atlas/. */
+  var ATLAS_BASE = (typeof window !== 'undefined' && window.T5_ATLAS_BASE) || 'fonts/';
   var FACES = {
-    small: { png: 'fonts/device12.png', json: 'fonts/device12.json' },
-    large: { png: 'fonts/device24.png', json: 'fonts/device24.json' }
+    small: { png: ATLAS_BASE + 'device12.png', json: ATLAS_BASE + 'device12.json' },
+    large: { png: ATLAS_BASE + 'device24.png', json: ATLAS_BASE + 'device24.json' }
   };
 
   var faces = { small: null, large: null };
