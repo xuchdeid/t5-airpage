@@ -10,6 +10,9 @@ const INFO    = '5f9b0004-7a6b-4c2d-9e8f-1234567890ab';
    T5 baseline used by the BLE protocol and the 90-degree packer. */
 const PANEL_W = 122, PANEL_H = 250, PANEL_STRIDE = 16;
 const STICKY_W = 480, STICKY_H = 800;
+/* Sticky is a 4-level panel: the wire frame is 2 bpp, 4 px per byte,
+   0 = black, 1 = dark grey, 2 = light grey, 3 = white. */
+const STICKY_BPP = 2;
 const DESIGN_W = 122, DESIGN_H = 250;
 const SCRIPT_MAX = 4096;
 const CMD_BEGIN_SCRIPT = 0x10, CMD_COMMIT_SCRIPT = 0x12;
@@ -775,6 +778,19 @@ function quantize(img, mode) {
 }
 
 function pack(viewBits) {
+  /* Sticky is 4-level: start from all-white (level 3) and stamp black where
+     the 1-bit canvas has ink. */
+  if (isSticky()) {
+    const out = new Uint8Array(IMAGE_BYTES);
+    out.fill(0xFF);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (!viewBits[y * W + x]) continue;
+        out[y * STRIDE + (x >> 2)] &= ~(0x03 << (6 - ((x & 3) * 2)));
+      }
+    }
+    return out;
+  }
   const out = new Uint8Array(IMAGE_BYTES);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -820,7 +836,7 @@ function updateBoardButtons() {
   const hint = $('#hint');
   if (!hint) return;
   hint.innerHTML = isSticky()
-    ? 'Sticky 3.97" · 480 × 800 原生帧<br>照片与每日一句按 480 × 800 重排，发送 48,000 字节；JS 设备画布仍为 122 × 250，按 3× 居中预览。'
+    ? 'Sticky 3.97" · 480 × 800 · 4 灰阶<br>照片与每日一句按 480 × 800 重排，发送 96,000 字节（2 bit/像素）；JS 设备画布仍为 122 × 250。'
     : '122 × 250 设备帧缓冲 · 1-bit<br>照片与每日一句支持横竖屏；JS 画布固定竖屏，使用设备同一份 12px 大字库（31K）和 API 模拟；同一份源码可发位图或推送到 T5。';
 }
 
@@ -856,9 +872,11 @@ function setOrientation(o) {
     W = state.orientation === 'landscape' ? PANEL_H : PANEL_W;
     H = state.orientation === 'landscape' ? PANEL_W : PANEL_H;
   }
-  /* The wire frame is always portrait: 122x250 on T5 (even when the editor
-     is landscape) and 480x800 on Sticky. */
-  STRIDE = Math.ceil((isSticky() ? STICKY_W : PANEL_W) / 8);
+  /* The wire frame is always portrait: 122x250 1 bpp on T5 (even when the
+     editor is landscape) and 480x800 2 bpp on Sticky. */
+  const wireW = isSticky() ? STICKY_W : PANEL_W;
+  const wireBpp = isSticky() ? STICKY_BPP : 1;
+  STRIDE = Math.ceil(wireW * wireBpp / 8);
   IMAGE_BYTES = STRIDE * (isSticky() ? STICKY_H : PANEL_H);
   bits = new Uint8Array(W * H);
   packed = new Uint8Array(IMAGE_BYTES);
@@ -1538,7 +1556,7 @@ async function netConnect(host, id) {
     const board = boardFromName(name) || state.board;
     const expW = board === 'sticky' ? STICKY_W : PANEL_W;
     const expH = board === 'sticky' ? STICKY_H : PANEL_H;
-    const expBytes = board === 'sticky' ? 48000 : 4000;
+    const expBytes = board === 'sticky' ? 96000 : 4000;
     if (info.w !== expW || info.h !== expH ||
         (info.bytes && info.bytes !== expBytes)) {
       throw new Error('固件帧尺寸不符：设备 ' + info.w + '×' + info.h +
