@@ -122,6 +122,9 @@
 
   /* ---- measurement ------------------------------------------------------- */
 
+  /* 行高由设备字库决定（12px 字库 13，24px 字库 26），compile() 时传入。 */
+  var LINE_HEIGHT = 13;
+
   function measureText(node, availW, measure) {
     var st = node.style;
     var scale = Math.max(1, Math.min(3, Math.round(Number(st.scale) || 1)));
@@ -130,21 +133,25 @@
     if (st.wrap === false) {
       lines = [str];
     } else {
+      /* 按字符断行：中文没有空格，按"词"断会把整句当成一个词，行宽直接爆掉。
+         Go 侧 t5_layout.go 用的是同一套规则。 */
       var maxW = availW === null || availW === undefined ? Infinity : availW;
-      var words = String(str).split(/(\s+)/);
-      var line = '';
-      for (var i = 0; i < words.length; i++) {
-        var w = words[i];
-        var test = line + w;
-        if (line && measure(test, scale) > maxW) {
-          lines.push(line);
-          line = w.replace(/^\s+/, '');
-        } else {
-          line = test;
+      var chars = Array.from(String(str));
+      var cur = '';
+      for (var ci = 0; ci < chars.length; ci++) {
+        var ch = chars[ci];
+        if (ch === '\n') {
+          lines.push(cur);
+          cur = '';
+          continue;
         }
+        if (cur && measure(cur + ch, scale) > maxW) {
+          lines.push(cur.replace(/\s+$/, ''));
+          cur = '';
+        }
+        cur += ch;
       }
-      if (line) lines.push(line);
-      if (!lines.length) lines = [''];
+      if (cur || !lines.length) lines.push(cur);
     }
     var maxLines = st.maxLines === undefined ? 0 : (Number(st.maxLines) || 0);
     if (maxLines > 0 && lines.length > maxLines) {
@@ -160,7 +167,7 @@
       var lw = measure(lines[j], scale);
       if (lw > w) w = lw;
     }
-    var lh = (Number(st.lineHeight) || 13) * scale;
+    var lh = (Number(st.lineHeight) || LINE_HEIGHT) * scale;
     return { lines: lines, scale: scale, w: w, h: lh * lines.length, lineH: lh };
   }
 
@@ -339,8 +346,36 @@
     return out + '"';
   }
 
+  function scaleEdges(e, s) {
+    return { t: e.t * s, r: e.r * s, b: e.b * s, l: e.l * s };
+  }
+
+  function cloneScaled(node, s) {
+    if (!node) return node;
+    var out = {};
+    for (var p in node) out[p] = node[p];   // 保留 value/text/type 等所有字段
+    var st = node.style || {};
+    out.style = {};
+    var nst = out.style;
+    for (var k in st) nst[k] = st[k];
+    nst.padding = scaleEdges(pad(st.padding), s);
+    nst.margin = scaleEdges(pad(st.margin), s);
+    if (st.gap !== undefined) nst.gap = Number(st.gap) * s;
+    if (st.width !== undefined) nst.width = Number(st.width) * s;
+    if (st.height !== undefined) nst.height = Number(st.height) * s;
+    if (st.weight !== undefined) nst.weight = Math.max(1, Math.round(Number(st.weight) * s));
+    if (st.lineHeight !== undefined) nst.lineHeight = Number(st.lineHeight) * s;
+    out.children = [];
+    (node.children || []).forEach(function (c) {
+      out.children.push(cloneScaled(c, s));
+    });
+    return out;
+  }
+
   function compile(tree, opts) {
     opts = opts || {};
+    if (opts.lineHeight) LINE_HEIGHT = opts.lineHeight;
+    if (opts.scale && opts.scale !== 1) tree = cloneScaled(tree, opts.scale);
     var measure = opts.measure;
     if (typeof measure !== 'function') throw new Error('compile() needs measure(text, scale)');
     var w = opts.w || 122, h = opts.h || 250;

@@ -514,6 +514,8 @@ function jsCompileLayout(text) {
   const probe = T5Paper.create({ canvas: { w: w, h: h } });
   const out = T5Flex.compile(tree, {
     w: w, h: h, native: native,
+    lineHeight: probe.lineHeight(1),
+    scale: native ? 2 : 1,
     measure: function (str, sc) { return probe.textWidth(str, sc); }
   });
   return out.source;
@@ -594,6 +596,7 @@ function executeJS() {
   jsCache = {
     code: state.jsCode,
     bits: bits,
+    levels: levels,
     packed: paper.getPacked(),
     hash: paper.hash || 0,
     error,
@@ -912,10 +915,13 @@ function pack(viewBits) {
 
 function drawPreview() {
   /* The preview is now the native wire frame: 122x250 on T5, 480x800 on
-     Sticky.  No second scaling step is applied in the browser. */
+     Sticky.  No second scaling step is applied in the browser.
+     Sticky is 4-level, so the preview shows four greys like the panel. */
   const id = pctx.createImageData(W, H);
+  const multi = isSticky() && jsCache && jsCache.levels && jsCache.levels.length === W * H;
+  const GREYS = [0, 85, 170, 255];
   for (let i = 0; i < bits.length; i++) {
-    const v = bits[i] ? 0 : 255;
+    const v = multi ? GREYS[jsCache.levels[i] & 3] : (bits[i] ? 0 : 255);
     const p = i * 4;
     id.data[p] = id.data[p + 1] = id.data[p + 2] = v;
     id.data[p + 3] = 255;
