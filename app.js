@@ -469,46 +469,63 @@ function errorFrame(msg) {
   return paper;
 }
 
-/* Compile the flex demo tree against the current panel and drop the generated
-   device script into the editor.  The device never sees the flex tree -- only
-   clear/fillRect/text/commit (see docs/device-js-api.md). */
+/* Drop a declarative layout tree into the editor.  The tree is
+   device-independent: the editor compiles it for the selected board, and rp
+   compiles the same tree per panel when it serves a device. */
 function insertFlexSample() {
-  if (!window.T5Flex || !window.T5Paper || !T5Paper.ready()) {
-    setStatus('布局编译器或字库还没加载好', 'bad');
+  if (!window.T5Flex) {
+    setStatus('布局编译器还没加载好', 'bad');
     return;
   }
   const ui = T5Flex.ui;
-  const native = isSticky();
-  const w = native ? STICKY_W : PANEL_W;
-  const h = native ? STICKY_H : PANEL_H;
-  const probe = T5Paper.create({ canvas: { w: w, h: h } });
-  const scale = native ? 2 : 1;
-  const tree = ui.column({ padding: 8, gap: 6 }, [
+  const tree = ui.column({ padding: 4, gap: 3 }, [
     ui.row({ justify: 'between', align: 'center' }, [
-      ui.text('pi-status', { scale: scale }),
+      ui.text('pi-status', { scale: 1 }),
       ui.text('MQTT', { scale: 1 })
     ]),
     ui.divider(),
-    ui.row({ gap: 8, align: 'end' }, [
-      ui.text('52', { scale: 3 }),
-      ui.text('C', { scale: 1, level: 1 })
-    ]),
+    ui.text('52 C', { scale: 2 }),
     ui.text('负载 0.42 · 内存 61% · 磁盘 38%', { scale: 1 }),
     ui.spacer(),
     ui.divider({ level: 2 }),
     ui.text('更新 12:34', { scale: 1, level: 1 })
   ]);
-  const out = T5Flex.compile(tree, {
-    w: w, h: h, native: native,
-    measure: function (s, sc) { return probe.textWidth(s, sc); }
-  });
-  state.jsCode = out.source;
+  state.jsCode = JSON.stringify(tree, null, 2);
   state.jsExample = 'custom';
   saveJSCode();
   render();
   executeJS();
   drawPreview();
-  setStatus('已生成 ' + out.ops.length + ' 条绘制指令（' + w + '×' + h + '）', 'ok');
+  setStatus('已插入布局树（编译后 ' + (jsArtifactSource() || '').length + ' 字节）', 'ok');
+}
+
+/* A script may be either ES5 source or a JSON layout tree. Trees are
+   device-independent; they are compiled here for whichever board is selected,
+   and rp compiles the same tree per panel when it serves a device. */
+function jsCompileLayout(text) {
+  const trimmed = String(text || '').trim();
+  if (trimmed.charAt(0) !== '{' || !window.T5Flex) return null;
+  let tree;
+  try { tree = JSON.parse(trimmed); } catch (e) { throw new Error('布局 JSON 解析失败：' + e.message); }
+  if (!tree || !tree.type) throw new Error('布局 JSON 缺少 type');
+  const native = isSticky();
+  const w = native ? STICKY_W : PANEL_W;
+  const h = native ? STICKY_H : PANEL_H;
+  const probe = T5Paper.create({ canvas: { w: w, h: h } });
+  const out = T5Flex.compile(tree, {
+    w: w, h: h, native: native,
+    measure: function (str, sc) { return probe.textWidth(str, sc); }
+  });
+  return out.source;
+}
+
+function jsArtifactSource() {
+  try {
+    const compiled = jsCompileLayout(state.jsCode);
+    return compiled === null ? state.jsCode : compiled;
+  } catch (e) {
+    return null;
+  }
 }
 
 function executeJS() {
@@ -517,10 +534,19 @@ function executeJS() {
       error: new Error("设备字库/模拟器未加载") };
     return jsCache;
   }
-  const issue = T5Paper.sourceIssue(state.jsCode);
-  let paper = null;
+  let artifact = state.jsCode;
   let error = null;
-  if (issue) {
+  try {
+    const compiled = jsCompileLayout(state.jsCode);
+    if (compiled !== null) artifact = compiled;
+  } catch (e) {
+    error = e;
+  }
+  const issue = error ? '' : T5Paper.sourceIssue(artifact);
+  let paper = null;
+  if (error) {
+    /* keep the layout error visible in the preview */
+  } else if (issue) {
     error = new Error(issue);
   } else {
     let payload;
@@ -542,7 +568,7 @@ function executeJS() {
       };
       const noop = function () {};
       const fn = new Function("paper", "print", "gc", "load", "setTimeout", "clearTimeout",
-        state.jsCode + "\n//# sourceURL=t5-device-script.js");
+        artifact + "\n//# sourceURL=t5-device-script.js");
       fn(paper, print, noop, noop, noop, noop);
       paper.commit();
     } catch (e) {
@@ -616,7 +642,8 @@ function runJS() {
 
 /* ---------- device ES5 source ---------- */
 function deviceByteLength() {
-  return new TextEncoder().encode(state.jsCode).length;
+  const artifact = jsArtifactSource();
+  return new TextEncoder().encode(artifact === null ? state.jsCode : artifact).length;
 }
 function updateDeviceMeta() {
   const el = $('#jsBytes');
@@ -626,6 +653,12 @@ function updateDeviceMeta() {
   el.classList.toggle('bad', n === 0 || n > SCRIPT_MAX);
 }
 function deviceSourceIssue() {
+  try {
+    const compiled = jsCompileLayout(state.jsCode);
+    if (compiled !== null) return T5Paper.sourceIssue(compiled);
+  } catch (e) {
+    return String(e.message || e);
+  }
   if (window.T5Paper && T5Paper.sourceIssue) return T5Paper.sourceIssue(state.jsCode);
   return '模拟器未加载';
 }
@@ -1328,7 +1361,8 @@ async function sendImageWifi() {
 async function pushScriptWifi() {
   const issue = deviceSourceIssue();
   if (issue) { setStatus('设备脚本检查：' + issue, 'bad'); return; }
-  const source = new TextEncoder().encode(state.jsCode);
+  const artifact = jsArtifactSource();
+  const source = new TextEncoder().encode(artifact === null || artifact === undefined ? state.jsCode : artifact);
   if (source.length === 0) { setStatus('设备脚本为空', 'bad'); return; }
   if (source.length > SCRIPT_MAX) {
     setStatus('设备脚本 ' + source.length + ' B，超过 ' + SCRIPT_MAX + ' B 上限', 'bad');
@@ -1451,7 +1485,8 @@ async function pushScript() {
   if (btBusy) return;
   const issue = deviceSourceIssue();
   if (issue) { setStatus('设备脚本检查：' + issue, 'bad'); return; }
-  const source = new TextEncoder().encode(state.jsCode);
+  const artifact = jsArtifactSource();
+  const source = new TextEncoder().encode(artifact === null || artifact === undefined ? state.jsCode : artifact);
   if (source.length === 0) { setStatus('设备脚本为空', 'bad'); return; }
   if (source.length > SCRIPT_MAX) {
     setStatus('设备脚本 ' + source.length + ' B，超过 ' + SCRIPT_MAX + ' B 上限', 'bad');

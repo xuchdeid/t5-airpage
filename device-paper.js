@@ -12,11 +12,17 @@
   var DEFAULT_H = 250;
   var MAX_W = 480, MAX_H = 800;
   var SCRIPT_MAX = 4096;
-  var FONT_PATH = 'fonts/device12.png';
-  var META_PATH = 'fonts/device12.json';
+  /* Two faces: 12 px for the 122x250 canvas (T5, legacy scripts) and 24 px
+     for the native 480x800 canvas (Sticky, compiler output). */
+  var FACES = {
+    small: { png: 'fonts/device12.png', json: 'fonts/device12.json' },
+    large: { png: 'fonts/device24.png', json: 'fonts/device24.json' }
+  };
 
-  var atlas = null;
+  var faces = { small: null, large: null };
   var loadPromise = null;
+
+  function faceFor(w, h) { return (w >= 400 || h >= 600) ? 'large' : 'small'; }
 
   function loadImage(src) {
     return new Promise(function (resolve, reject) {
@@ -43,20 +49,19 @@
         }
       }
     }
-    atlas = {
+    return {
       cellW: meta.cellW, cellH: meta.cellH, baseline: meta.baseline,
       lineHeight: meta.lineHeight, cols: meta.cols, rows: meta.rows,
       glyphs: meta.glyphs, stride: stride, perGlyph: perGlyph,
       coverage: coverage, map: meta.map
     };
-    return atlas;
   }
 
-  function loadAtlas() {
-    if (loadPromise) return loadPromise;
-    loadPromise = Promise.all([
-      loadImage(FONT_PATH),
-      fetch(META_PATH).then(function (r) {
+  function loadFace(name) {
+    var cfg = FACES[name];
+    return Promise.all([
+      loadImage(cfg.png),
+      fetch(cfg.json).then(function (r) {
         if (!r.ok) throw new Error('atlas meta HTTP ' + r.status);
         return r.json();
       })
@@ -68,31 +73,40 @@
       var ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(image, 0, 0);
-      return buildAtlas(meta, ctx.getImageData(0, 0, canvas.width, canvas.height).data,
-        canvas.width);
+      faces[name] = buildAtlas(meta,
+        ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width);
+      return faces[name];
+    });
+  }
+
+  function loadAtlas() {
+    if (loadPromise) return loadPromise;
+    loadPromise = loadFace('small').then(function () {
+      return loadFace('large').catch(function () { return null; });
     });
     return loadPromise;
   }
 
-  /* Node/CI path: hand in the atlas built from src/font12_atlas.h. */
-  function setAtlas(meta, coverage) {
-    atlas = {
+  /* Node/CI path: hand in an atlas built from the generated C arrays. */
+  function setAtlas(meta, coverage, name) {
+    var face = {
       cellW: meta.cellW, cellH: meta.cellH, baseline: meta.baseline,
       lineHeight: meta.lineHeight, cols: meta.cols || 1, rows: meta.rows || 1,
       glyphs: meta.glyphs, stride: (meta.cellW + 7) >> 3,
       perGlyph: ((meta.cellW + 7) >> 3) * meta.cellH,
       coverage: coverage, map: meta.map
     };
-    loadPromise = Promise.resolve(atlas);
-    return atlas;
+    faces[name || 'small'] = face;
+    loadPromise = Promise.resolve(face);
+    return face;
   }
 
-  function ready() { return !!atlas; }
+  function ready() { return !!faces.small; }
 
-  function glyphFor(cp) {
-    var entry = atlas.map[String(cp)];
+  function glyphFor(at, cp) {
+    var entry = at.map[String(cp)];
     if (entry) return { gid: entry[0], advance: entry[1] };
-    return { gid: 0, advance: atlas.cellW };
+    return { gid: 0, advance: at.cellW };
   }
 
   function toInt32(v) { return Number(v) | 0; }
@@ -129,6 +143,9 @@
     this.calls = 0;
     this.screen = screen || { w: cw, h: ch, bpp: 1, scale: 1 };
     this.data = data;
+    this.face = faces[faceFor(cw, ch)] || faces.small;
+    if (!this.face) throw new Error('device font atlas not loaded');
+    this.faceName = faceFor(cw, ch);
   }
 
   Paper.prototype.width = function () { return this.w; };
@@ -174,12 +191,13 @@
   };
 
   Paper.prototype._glyph = function (x, y, gid, level, scale) {
-    if (gid < 0 || gid >= atlas.glyphs) gid = 0;
-    var base = gid * atlas.perGlyph;
-    for (var row = 0; row < atlas.cellH; row++) {
-      var src = base + row * atlas.stride;
-      for (var col = 0; col < atlas.cellW; col++) {
-        if (!(atlas.coverage[src + (col >> 3)] & (0x80 >> (col & 7)))) continue;
+    var at = this.face;
+    if (gid < 0 || gid >= at.glyphs) gid = 0;
+    var base = gid * at.perGlyph;
+    for (var row = 0; row < at.cellH; row++) {
+      var src = base + row * at.stride;
+      for (var col = 0; col < at.cellW; col++) {
+        if (!(at.coverage[src + (col >> 3)] & (0x80 >> (col & 7)))) continue;
         for (var dy = 0; dy < scale; dy++) {
           for (var dx = 0; dx < scale; dx++) {
             this._set(x + col * scale + dx, y + row * scale + dy, level);
@@ -194,9 +212,9 @@
     var chars = Array.from(String(text));
     for (var i = 0; i < chars.length; i++) {
       var cp = chars[i].codePointAt(0);
-      if (cp === 0x0A) { x = startX; y += atlas.lineHeight * scale; continue; }
+      if (cp === 0x0A) { x = startX; y += this.face.lineHeight * scale; continue; }
       if (cp === 0x0D) continue;
-      var g = glyphFor(cp);
+      var g = glyphFor(this.face, cp);
       this._glyph(x, y, g.gid, level, scale);
       x += g.advance * scale;
     }
@@ -206,7 +224,6 @@
   Paper.prototype.text = function (x, y, text, scaleArg, black) {
     if (++this.calls > 2000) throw new Error('draw budget exceeded');
     if (arguments.length < 3) throw new TypeError('paper.text(x,y,text,scale,black)');
-    if (!atlas) throw new Error('device font atlas not loaded');
     var scale = 1, level = 0;
     if (arguments.length > 3) {
       if (scaleArg && typeof scaleArg === 'object') {
@@ -224,7 +241,8 @@
   };
 
   Paper.prototype.textWidth = function (text, scaleArg) {
-    if (!atlas) return 0;
+    var at = this.face;
+    if (!at) return 0;
     var scale = 1;
     if (arguments.length > 1) {
       var n = toInt32(scaleArg);
@@ -235,20 +253,20 @@
     for (var i = 0; i < chars.length; i++) {
       var cp = chars[i].codePointAt(0);
       if (cp === 0x0A) { if (line > max) max = line; line = 0; }
-      else if (cp !== 0x0D) line += glyphFor(cp).advance;
+      else if (cp !== 0x0D) line += glyphFor(at, cp).advance;
     }
     if (line > max) max = line;
     return max * scale;
   };
 
   Paper.prototype.lineHeight = function (scaleArg) {
-    if (!atlas) return 0;
+    if (!this.face) return 0;
     var scale = 1;
     if (arguments.length > 0) {
       var n = toInt32(scaleArg);
       if (n >= 1 && n <= 3) scale = n;
     }
-    return atlas.lineHeight * scale;
+    return this.face.lineHeight * scale;
   };
 
   Paper.prototype.commit = function () {
